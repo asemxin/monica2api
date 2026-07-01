@@ -306,6 +306,7 @@ const webGUIHTML = `<!doctype html>
       item.textContent = content;
       messagesEl.appendChild(item);
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      return item;
     }
     function addError(error) {
       addMessage('error', error.message || String(error));
@@ -352,13 +353,40 @@ const webGUIHTML = `<!doctype html>
         const res = await fetch('/v1/chat/completions', {
           method: 'POST',
           headers: authHeaders(),
-          body: JSON.stringify({ model, messages: requestMessages, stream: false })
+          body: JSON.stringify({ model, messages: requestMessages, stream: true })
         });
         if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const reply = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
+        const assistantEl = addMessage('assistant', '');
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let reply = '';
+        let done = false;
+        while (!done) {
+          const chunk = await reader.read();
+          done = chunk.done;
+          buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !done });
+          const events = buffer.split('\n\n');
+          buffer = events.pop() || '';
+          for (const eventText of events) {
+            for (const line of eventText.split('\n')) {
+              if (!line.startsWith('data:')) continue;
+              const dataText = line.slice(5).trim();
+              if (!dataText || dataText === '[DONE]') continue;
+              const data = JSON.parse(dataText);
+              const delta = data.choices?.[0]?.delta?.content || '';
+              if (delta) {
+                reply += delta;
+                assistantEl.textContent = reply;
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+              }
+            }
+          }
+        }
+        if (!reply) {
+          assistantEl.textContent = '(empty response)';
+        }
         messages.push({ role: 'assistant', content: reply });
-        addMessage('assistant', reply);
         setStatus('Ready');
       } catch (error) {
         setStatus('Request failed');
