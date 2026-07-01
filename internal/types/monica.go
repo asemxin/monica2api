@@ -287,17 +287,32 @@ type modelRoute struct {
 var modelRouteMap = map[string]modelRoute{
 	"gpt-4o": {BotUID: "gpt_4_o_chat"},
 
-	"gpt-5":   {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
-	"gpt-5.4": {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
-	"gpt-4-5": {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
+	"gpt-5":         {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
+	"gpt-5.5":       {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.5"},
+	"gpt-5.4":       {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
+	"gpt-5.4-pro":   {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4-pro"},
+	"gpt-5.4-nano":  {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4-nano"},
+	"gpt-5.3-codex": {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.3-codex"},
+	"gpt-4-5":       {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
 
 	"claude-4-sonnet":   {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-4-6"},
+	"claude-5-sonnet":   {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-5"},
+	"claude-sonnet-5":   {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-5"},
+	"claude-fable-5":    {BotUID: "gpt_4_o_chat", UseModel: "claude-fable-5"},
+	"claude-opus-4-8":   {BotUID: "gpt_4_o_chat", UseModel: "claude-opus-4-8"},
+	"claude-opus-4-7":   {BotUID: "gpt_4_o_chat", UseModel: "claude-opus-4-7"},
 	"claude-sonnet-4-6": {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-4-6"},
+	"claude-opus-4-6":   {BotUID: "gpt_4_o_chat", UseModel: "claude-opus-4-6"},
+	"claude-opus-4-5":   {BotUID: "gpt_4_o_chat", UseModel: "claude-opus-4-5"},
+	"claude-sonnet-4-5": {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-4-5"},
 
 	"gemini-2.5-pro":                  {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-pro-preview-thinking"},
+	"gemini-3.1-pro":                  {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-pro-preview-thinking"},
 	"gemini-3.1-pro-preview-thinking": {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-pro-preview-thinking"},
 	"gemini-2.5-flash":                {BotUID: "gpt_4_o_chat", UseModel: "gemini-3-flash-preview"},
+	"gemini-3.5-flash":                {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.5-flash"},
 	"gemini-3-flash-preview":          {BotUID: "gpt_4_o_chat", UseModel: "gemini-3-flash-preview"},
+	"gemini-3.1-flash-lite":           {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-flash-lite"},
 }
 
 func modelToRoute(model string) modelRoute {
@@ -370,16 +385,31 @@ func GetSupportedModels() []string {
 	models := []string{
 		"gpt-4o",
 		"gpt-5",
+		"gpt-5.5",
 		"gpt-5.4",
+		"gpt-5.4-pro",
+		"gpt-5.4-nano",
+		"gpt-5.3-codex",
 		"gpt-4-5",
 
+		"claude-5-sonnet",
+		"claude-sonnet-5",
+		"claude-fable-5",
+		"claude-opus-4-8",
+		"claude-opus-4-7",
 		"claude-4-sonnet",
 		"claude-sonnet-4-6",
+		"claude-opus-4-6",
+		"claude-opus-4-5",
+		"claude-sonnet-4-5",
 
 		"gemini-2.5-pro",
+		"gemini-3.1-pro",
 		"gemini-3.1-pro-preview-thinking",
 		"gemini-2.5-flash",
+		"gemini-3.5-flash",
 		"gemini-3-flash-preview",
+		"gemini-3.1-flash-lite",
 	}
 	return models
 }
