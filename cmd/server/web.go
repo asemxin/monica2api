@@ -319,13 +319,19 @@ const webGUIHTML = `<!doctype html>
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
         modelEl.innerHTML = '';
-        for (const item of data.data || []) {
+        const models = (data.data || []).map(item => item.id).filter(Boolean);
+        models.sort((a, b) => {
+          if (a === 'gpt-4o') return -1;
+          if (b === 'gpt-4o') return 1;
+          return a.localeCompare(b);
+        });
+        for (const id of models) {
           const option = document.createElement('option');
-          option.value = item.id;
-          option.textContent = item.id;
+          option.value = id;
+          option.textContent = id;
           modelEl.appendChild(option);
         }
-        modelEl.value = localStorage.getItem('monica2api_model') || modelEl.value;
+        modelEl.value = models.includes('gpt-4o') ? 'gpt-4o' : modelEl.value;
         setStatus('Models loaded');
       } catch (error) {
         setStatus('Model load failed');
@@ -333,6 +339,41 @@ const webGUIHTML = `<!doctype html>
       } finally {
         loadModelsEl.disabled = false;
       }
+    }
+    async function streamChat(requestModel, requestMessages, assistantEl) {
+      const res = await fetch('/v1/chat/completions', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ model: requestModel, messages: requestMessages, stream: true })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let reply = '';
+      let done = false;
+      while (!done) {
+        const chunk = await reader.read();
+        done = chunk.done;
+        buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !done });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
+        for (const eventText of events) {
+          for (const line of eventText.split('\n')) {
+            if (!line.startsWith('data:')) continue;
+            const dataText = line.slice(5).trim();
+            if (!dataText || dataText === '[DONE]') continue;
+            const data = JSON.parse(dataText);
+            const delta = data.choices?.[0]?.delta?.content || '';
+            if (delta) {
+              reply += delta;
+              assistantEl.textContent = reply;
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+          }
+        }
+      }
+      return reply;
     }
     async function sendMessage(event) {
       event.preventDefault();
@@ -350,41 +391,19 @@ const webGUIHTML = `<!doctype html>
       if (system) requestMessages.push({ role: 'system', content: system });
       requestMessages.push(...messages);
       try {
-        const res = await fetch('/v1/chat/completions', {
-          method: 'POST',
-          headers: authHeaders(),
-          body: JSON.stringify({ model, messages: requestMessages, stream: true })
-        });
-        if (!res.ok) throw new Error(await res.text());
         const assistantEl = addMessage('assistant', '');
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let reply = '';
-        let done = false;
-        while (!done) {
-          const chunk = await reader.read();
-          done = chunk.done;
-          buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !done });
-          const events = buffer.split('\n\n');
-          buffer = events.pop() || '';
-          for (const eventText of events) {
-            for (const line of eventText.split('\n')) {
-              if (!line.startsWith('data:')) continue;
-              const dataText = line.slice(5).trim();
-              if (!dataText || dataText === '[DONE]') continue;
-              const data = JSON.parse(dataText);
-              const delta = data.choices?.[0]?.delta?.content || '';
-              if (delta) {
-                reply += delta;
-                assistantEl.textContent = reply;
-                messagesEl.scrollTop = messagesEl.scrollHeight;
-              }
-            }
-          }
+        let reply = await streamChat(model, requestMessages, assistantEl);
+        if (!reply && model !== 'gpt-4o') {
+          setStatus('Retrying with gpt-4o...');
+          assistantEl.textContent = '';
+          modelEl.value = 'gpt-4o';
+          localStorage.setItem('monica2api_model', 'gpt-4o');
+          reply = await streamChat('gpt-4o', requestMessages, assistantEl);
         }
         if (!reply) {
-          assistantEl.textContent = '(empty response)';
+          const hint = 'No content returned. The selected Monica model may be unavailable for the current account.';
+          assistantEl.textContent = hint;
+          reply = hint;
         }
         messages.push({ role: 'assistant', content: reply });
         setStatus('Ready');
