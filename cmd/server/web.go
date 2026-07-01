@@ -311,6 +311,12 @@ const webGUIHTML = `<!doctype html>
     function addError(error) {
       addMessage('error', error.message || String(error));
     }
+    function visibleReply(text) {
+      return text
+        .replace(/<think>[\s\S]*?<\/think>/g, '')
+        .replace(/<think>[\s\S]*$/g, '')
+        .trim();
+    }
     async function loadModels() {
       try {
         setStatus('Loading models...');
@@ -367,13 +373,13 @@ const webGUIHTML = `<!doctype html>
             const delta = data.choices?.[0]?.delta?.content || '';
             if (delta) {
               reply += delta;
-              assistantEl.textContent = reply;
+              assistantEl.textContent = visibleReply(reply);
               messagesEl.scrollTop = messagesEl.scrollHeight;
             }
           }
         }
       }
-      reply = reply.replace(/<think>\s*<\/think>/g, '');
+      reply = visibleReply(reply);
       assistantEl.textContent = reply;
       return reply;
     }
