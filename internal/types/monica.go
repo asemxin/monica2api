@@ -279,51 +279,33 @@ type OpenAIModelList struct {
 	Data   []OpenAIModel `json:"data"`
 }
 
-var modelToBotMap = map[string]string{
-	"gpt-5":        "gpt_5",
-	"gpt-4o":       "gpt_4_o_chat",
-	"gpt-4o-mini":  "gpt_4_o_mini_chat",
-	"gpt-4.1":      "gpt_4_1",
-	"gpt-4.1-mini": "gpt_4_1_mini",
-	"gpt-4.1-nano": "gpt_4_1_nano",
-	"gpt-4-5":      "gpt_4_5_chat",
-	"o1-preview":   "openai_o_1",
-	"o3":           "o3",
-	"o3-mini":      "openai_o_3_mini",
-	"o4-mini":      "o4_mini",
-
-	"claude-4-sonnet":            "claude_4_sonnet",
-	"claude-4-sonnet-thinking":   "claude_4_sonnet_think",
-	"claude-4-opus":              "claude_4_opus",
-	"claude-4-opus-thinking":     "claude_4_opus_think",
-	"claude-3-7-sonnet-thinking": "claude_3_7_sonnet_think",
-	"claude-3-7-sonnet":          "claude_3_7_sonnet",
-	"claude-3-5-sonnet":          "claude_3.5_sonnet",
-	"claude-3-5-haiku":           "claude_3.5_haiku",
-
-	"gemini-2.5-pro":   "gemini_2_5_pro",
-	"gemini-2.5-flash": "gemini_2_5_flash",
-	"gemini-2.0-flash": "gemini_2_0",
-	"gemini-1":         "gemini_1_5",
-
-	"deepseek-reasoner": "deepseek_reasoner",
-	"deepseek-chat":     "deepseek_chat",
-	"deepclaude":        "deepclaude",
-
-	"sonar":               "sonar",
-	"sonar-reasoning-pro": "sonar_reasoning_pro",
-
-	"grok-3-beta": "grok_3_beta",
-	"grok-4":      "grok_4",
+type modelRoute struct {
+	BotUID   string
+	UseModel string
 }
 
-func modelToBot(model string) string {
-	if botUID, ok := modelToBotMap[model]; ok {
-		return botUID
+var modelRouteMap = map[string]modelRoute{
+	"gpt-4o": {BotUID: "gpt_4_o_chat"},
+
+	"gpt-5":   {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
+	"gpt-5.4": {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
+	"gpt-4-5": {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
+
+	"claude-4-sonnet":   {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-4-6"},
+	"claude-sonnet-4-6": {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-4-6"},
+
+	"gemini-2.5-pro":                  {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-pro-preview-thinking"},
+	"gemini-3.1-pro-preview-thinking": {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-pro-preview-thinking"},
+	"gemini-2.5-flash":                {BotUID: "gpt_4_o_chat", UseModel: "gemini-3-flash-preview"},
+	"gemini-3-flash-preview":          {BotUID: "gpt_4_o_chat", UseModel: "gemini-3-flash-preview"},
+}
+
+func modelToRoute(model string) modelRoute {
+	if route, ok := modelRouteMap[model]; ok {
+		return route
 	}
-	// 如果未找到映射，则返回原始模型名称
-	logger.Warn("未找到模型映射，使用原始名称", zap.String("model", model))
-	return model
+	logger.Warn("未找到模型映射，回退到 Monica 默认模型", zap.String("model", model))
+	return modelRoute{BotUID: "gpt_4_o_chat"}
 }
 
 // CustomBotRequest 定义custom bot的请求结构
@@ -386,40 +368,18 @@ const (
 // GetSupportedModels 获取支持的模型列表
 func GetSupportedModels() []string {
 	models := []string{
-		"gpt-5",
 		"gpt-4o",
-		"gpt-4o-mini",
+		"gpt-5",
+		"gpt-5.4",
 		"gpt-4-5",
-		"gpt-4.1",
-		"gpt-4.1-mini",
-		"gpt-4.1-nano",
 
 		"claude-4-sonnet",
-		"claude-4-sonnet-thinking",
-		"claude-4-opus",
-		"claude-4-opus-thinking",
-		"claude-3-7-sonnet-thinking",
-		"claude-3-7-sonnet",
-		"claude-3-5-sonnet",
-		"claude-3-5-haiku",
+		"claude-sonnet-4-6",
 
 		"gemini-2.5-pro",
+		"gemini-3.1-pro-preview-thinking",
 		"gemini-2.5-flash",
-		"gemini-2.0-flash",
-		"gemini-1",
-
-		"o1-preview",
-		"o3",
-		"o3-mini",
-		"o4-mini",
-
-		"deepseek-reasoner",
-		"deepseek-chat",
-		"deepclaude",
-		"sonar",
-		"sonar-reasoning-pro",
-		"grok-3-beta",
-		"grok-4",
+		"gemini-3-flash-preview",
 	}
 	return models
 }
@@ -460,7 +420,7 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 				switch content.Type {
 				case "text":
 					msgContext = content.Text
-					
+
 					// 检测文本内容中的文件信息
 					if strings.Contains(msgContext, "[file name]:") && strings.Contains(msgContext, "[file content begin]") {
 						// 提取文件名和文件内容
@@ -476,7 +436,7 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 							msgContext = ""
 						}
 					}
-					
+
 				case "image_url":
 					// 图片处理 (当前支持)
 					attachments = append(attachments, AttachmentRequest{
@@ -516,7 +476,7 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 				// 确定文件来源类型
 				var source FileUploadSource
 				var fileData interface{}
-				
+
 				if strings.HasPrefix(attachment.Data, "data:") {
 					source = SourceBase64
 					fileData = attachment.Data
@@ -608,16 +568,17 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 	}
 
 	// 构建请求
+	route := modelToRoute(chatReq.Model)
 	mReq := &MonicaRequest{
 		TaskUID: fmt.Sprintf("task:%s", uuid.New().String()),
-		BotUID:  modelToBot(chatReq.Model),
+		BotUID:  route.BotUID,
 		Data: DataField{
 			ConversationID:  conversationID,
 			Items:           items,
 			PreParentItemID: preItemID,
 			TriggerBy:       "auto",
 			IsIncognito:     true,
-			UseModel:        "", //TODO 好像写啥都没影响
+			UseModel:        route.UseModel,
 			UseNewMemory:    false,
 		},
 		Language: "auto",
@@ -790,21 +751,21 @@ func extractFileFromText(text string) (fileName, fileContent string, found bool)
 		return "", "", false
 	}
 	fileName = strings.TrimSpace(fileNameMatch[1])
-	
+
 	// 查找文件内容开始和结束标记
 	contentStart := strings.Index(text, "[file content begin]")
 	if contentStart == -1 {
 		return "", "", false
 	}
 	contentStart += len("[file content begin]")
-	
+
 	contentEnd := strings.Index(text, "[file content end]")
 	if contentEnd == -1 {
 		return "", "", false
 	}
-	
+
 	// 提取文件内容
 	fileContent = strings.TrimSpace(text[contentStart:contentEnd])
-	
+
 	return fileName, fileContent, true
 }

@@ -373,6 +373,8 @@ const webGUIHTML = `<!doctype html>
           }
         }
       }
+      reply = reply.replace(/<think>\s*<\/think>/g, '');
+      assistantEl.textContent = reply;
       return reply;
     }
     async function sendMessage(event) {
