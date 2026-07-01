@@ -37,6 +37,7 @@ func newServerApp(cfg *config.Config) *serverApp {
 	e.Use(middleware.RequestID())
 	e.Use(customMiddleware.RateLimit(cfg))
 
+	e.GET("/", serveWebGUI)
 	apiserver.RegisterRoutes(e, cfg)
 
 	return &serverApp{

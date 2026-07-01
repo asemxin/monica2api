@@ -22,9 +22,9 @@ func RegisterRoutes(e *echo.Echo, cfg *config.Config) {
 	// 设置自定义错误处理器
 	e.HTTPErrorHandler = middleware.ErrorHandler()
 
-	// 添加中间件
-	e.Use(middleware.BearerAuth(cfg))
-	e.Use(middleware.RequestLogger(cfg))
+	api := e.Group("")
+	api.Use(middleware.BearerAuth(cfg))
+	api.Use(middleware.RequestLogger(cfg))
 
 	// 初始化服务实例
 	chatService := service.NewChatService(cfg)
@@ -34,22 +34,22 @@ func RegisterRoutes(e *echo.Echo, cfg *config.Config) {
 	fileService := service.NewFileService(cfg)
 
 	// ChatGPT 风格的请求转发到 /v1/chat/completions
-	e.POST("/v1/chat/completions", createChatCompletionHandler(chatService, customBotService, cfg))
+	api.POST("/v1/chat/completions", createChatCompletionHandler(chatService, customBotService, cfg))
 	// 获取支持的模型列表
-	e.GET("/v1/models", createListModelsHandler(modelService))
+	api.GET("/v1/models", createListModelsHandler(modelService))
 	// DALL-E 风格的图片生成请求
-	e.POST("/v1/images/generations", createImageGenerationHandler(imageService))
+	api.POST("/v1/images/generations", createImageGenerationHandler(imageService))
 
 	// OpenAI兼容的文件管理API
-	e.POST("/v1/files", createFileUploadHandler(fileService))
-	e.GET("/v1/files/:file_id", createGetFileHandler(fileService))
-	e.GET("/v1/files", createListFilesHandler(fileService))
-	e.DELETE("/v1/files/:file_id", createDeleteFileHandler(fileService))
+	api.POST("/v1/files", createFileUploadHandler(fileService))
+	api.GET("/v1/files/:file_id", createGetFileHandler(fileService))
+	api.GET("/v1/files", createListFilesHandler(fileService))
+	api.DELETE("/v1/files/:file_id", createDeleteFileHandler(fileService))
 
 	// Custom Bot 测试接口
-	e.POST("/v1/chat/custom-bot/:bot_uid", createCustomBotHandler(customBotService, cfg))
+	api.POST("/v1/chat/custom-bot/:bot_uid", createCustomBotHandler(customBotService, cfg))
 	// 新增不带bot_uid的路由，使用环境变量中的BOT_UID
-	e.POST("/v1/chat/custom-bot", createCustomBotHandler(customBotService, cfg))
+	api.POST("/v1/chat/custom-bot", createCustomBotHandler(customBotService, cfg))
 }
 
 // createChatCompletionHandler 创建聊天完成处理器
