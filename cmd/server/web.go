@@ -26,6 +26,8 @@ const webGUIHTML = `<!doctype html>
       --accent: #1463ff;
       --accent-dark: #0f48bf;
       --danger: #b42318;
+      --warn: #9a6700;
+      --warn-bg: #fff7e6;
       --shadow: 0 18px 45px rgba(23, 32, 51, 0.10);
     }
     * { box-sizing: border-box; }
@@ -149,6 +151,47 @@ const webGUIHTML = `<!doctype html>
       line-height: 1.45;
       margin: 0;
     }
+    .usage-card {
+      border: 1px solid #eadfc7;
+      background: #fffaf0;
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .usage-head, .usage-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .usage-head {
+      font-size: 13px;
+      font-weight: 720;
+    }
+    .usage-line {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .usage-value {
+      color: var(--text);
+      font-weight: 720;
+      white-space: nowrap;
+    }
+    .model-note {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 11px;
+      color: var(--muted);
+      background: #fbfcff;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .model-note.credit {
+      color: var(--warn);
+      border-color: #f3d7a2;
+      background: var(--warn-bg);
+    }
     .chat {
       min-height: 560px;
       display: grid;
@@ -248,6 +291,13 @@ const webGUIHTML = `<!doctype html>
           </div>
           <button class="ghost" id="loadModels" type="button">Load</button>
         </div>
+        <div class="usage-card" id="usageCard">
+          <div class="usage-head"><span>Plan</span><span id="planValue">Max</span></div>
+          <div class="usage-line"><span>Standard queries</span><span class="usage-value" id="standardValue">∞</span></div>
+          <div class="usage-line"><span>Advanced queries</span><span class="usage-value" id="advancedValue">∞</span></div>
+          <div class="usage-line"><span>Advanced credits</span><span class="usage-value" id="creditsValue">Loading...</span></div>
+        </div>
+        <div class="model-note" id="modelNote">Load models to see usage type.</div>
         <div>
           <label for="systemPrompt">System Prompt</label>
           <textarea id="systemPrompt" placeholder="Optional"></textarea>
@@ -271,6 +321,11 @@ const webGUIHTML = `<!doctype html>
     const apiKeyEl = document.getElementById('apiKey');
     const modelEl = document.getElementById('model');
     const loadModelsEl = document.getElementById('loadModels');
+    const planValueEl = document.getElementById('planValue');
+    const standardValueEl = document.getElementById('standardValue');
+    const advancedValueEl = document.getElementById('advancedValue');
+    const creditsValueEl = document.getElementById('creditsValue');
+    const modelNoteEl = document.getElementById('modelNote');
     const systemPromptEl = document.getElementById('systemPrompt');
     const clearChatEl = document.getElementById('clearChat');
     const chatForm = document.getElementById('chatForm');
@@ -281,6 +336,22 @@ const webGUIHTML = `<!doctype html>
     const statusEl = document.getElementById('status');
     const baseUrlEl = document.getElementById('baseUrl');
     let messages = [];
+    let usageSummary = null;
+
+    const standardQueryModels = new Set(['gpt-4o', 'gpt-5.4-nano', 'gemini-3.1-flash-lite']);
+    const creditModels = new Set(['claude-fable-5']);
+
+    function modelUsageType(model) {
+      if (creditModels.has(model)) return 'credits';
+      if (standardQueryModels.has(model)) return 'standard';
+      return 'advanced';
+    }
+    function usageLabel(model) {
+      const type = modelUsageType(model);
+      if (type === 'credits') return 'Advanced Credits';
+      if (type === 'standard') return 'Standard Queries';
+      return 'Advanced Queries';
+    }
 
     baseUrlEl.textContent = window.location.origin;
     apiKeyEl.value = localStorage.getItem('monica2api_key') || '';
@@ -311,6 +382,49 @@ const webGUIHTML = `<!doctype html>
     function addError(error) {
       addMessage('error', error.message || String(error));
     }
+    function formatInfinity(value) {
+      return value === 'unlimited' ? '∞' : value || '—';
+    }
+    function renderUsage(summary, errorText) {
+      usageSummary = summary || usageSummary || {
+        plan: 'Max',
+        standardQueries: 'unlimited',
+        advancedQueries: 'unlimited',
+        advancedCredits: { available: false }
+      };
+      planValueEl.textContent = usageSummary.plan || 'Max';
+      standardValueEl.textContent = formatInfinity(usageSummary.standardQueries);
+      advancedValueEl.textContent = formatInfinity(usageSummary.advancedQueries);
+      const credits = usageSummary.advancedCredits || {};
+      creditsValueEl.textContent = credits.available
+        ? credits.remaining + (credits.total ? ' / ' + credits.total : '')
+        : (errorText ? 'Unavailable' : '—');
+      updateModelUsageHint();
+    }
+    async function loadUsage() {
+      try {
+        const res = await fetch('/v1/usage', { headers: authHeaders() });
+        const data = await res.json();
+        renderUsage(data.summary, data.error);
+      } catch (error) {
+        renderUsage(null, error.message || String(error));
+      }
+    }
+    function updateModelUsageHint() {
+      const model = modelEl.value;
+      if (!model) return;
+      const type = modelUsageType(model);
+      modelNoteEl.classList.toggle('credit', type === 'credits');
+      if (type === 'credits') {
+        const credits = usageSummary?.advancedCredits;
+        const left = credits?.available ? ' Remaining credits: ' + credits.remaining + (credits.total ? ' / ' + credits.total + '.' : '.') : ' Credit balance is unavailable.';
+        modelNoteEl.textContent = model + ' consumes Advanced Credits instead of Advanced Queries.' + left;
+      } else if (type === 'standard') {
+        modelNoteEl.textContent = model + ' uses Standard Queries. Your Max plan shows Standard Queries as unlimited.';
+      } else {
+        modelNoteEl.textContent = model + ' uses Advanced Queries. Your Max plan shows Advanced Queries as unlimited.';
+      }
+    }
     function visibleReply(text) {
       return text
         .replace(/<think>[\s\S]*?<\/think>/g, '')
@@ -334,10 +448,13 @@ const webGUIHTML = `<!doctype html>
         for (const id of models) {
           const option = document.createElement('option');
           option.value = id;
-          option.textContent = id;
+          option.textContent = id + ' · ' + usageLabel(id);
           modelEl.appendChild(option);
         }
-        modelEl.value = models.includes('gpt-4o') ? 'gpt-4o' : modelEl.value;
+        const savedModel = localStorage.getItem('monica2api_model');
+        modelEl.value = savedModel && models.includes(savedModel) ? savedModel : (models.includes('gpt-4o') ? 'gpt-4o' : modelEl.value);
+        updateModelUsageHint();
+        await loadUsage();
         setStatus('Models loaded');
       } catch (error) {
         setStatus('Model load failed');
@@ -414,6 +531,7 @@ const webGUIHTML = `<!doctype html>
           reply = hint;
         }
         messages.push({ role: 'assistant', content: reply });
+        loadUsage();
         setStatus('Ready');
       } catch (error) {
         setStatus('Request failed');
@@ -424,6 +542,7 @@ const webGUIHTML = `<!doctype html>
       }
     }
     loadModelsEl.addEventListener('click', loadModels);
+    modelEl.addEventListener('change', updateModelUsageHint);
     chatForm.addEventListener('submit', sendMessage);
     clearChatEl.addEventListener('click', () => {
       messages = [];

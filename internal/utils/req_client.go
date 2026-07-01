@@ -44,7 +44,7 @@ func createSSEClient(cfg *config.Config) *resty.Client {
 		},
 		Proxy: http.ProxyFromEnvironment, // 使用环境变量中的代理设置
 	}
-	
+
 	// 如果配置中有代理设置，则使用配置的代理
 	if cfg.Proxy.HTTPProxy != "" || cfg.Proxy.HTTPSProxy != "" {
 		proxyURL := cfg.Proxy.HTTPProxy
@@ -106,7 +106,7 @@ func createDefaultClient(cfg *config.Config) *resty.Client {
 		},
 		Proxy: http.ProxyFromEnvironment, // 使用环境变量中的代理设置
 	}
-	
+
 	// 如果配置中有代理设置，则使用配置的代理
 	if cfg.Proxy.HTTPProxy != "" || cfg.Proxy.HTTPSProxy != "" {
 		proxyURL := cfg.Proxy.HTTPProxy
@@ -152,15 +152,15 @@ type MonicaQuotaResponse struct {
 	Msg  string `json:"msg"`
 	Data struct {
 		ModuleQuotas []struct {
-			Module  string `json:"module"`
-			Quotas  []struct {
+			Module string `json:"module"`
+			Quotas []struct {
 				Scene          string `json:"scene"`
-				ResetFrequency string `json:"reset_frequency"`
-				DefaultQuota   int    `json:"default_quota"`
-				CurrentQuota   int    `json:"current_quota"`
-				LastResetTime  string `json:"last_reset_time"`
+				ResetFrequency string `json:"resetFrequency"`
+				DefaultQuota   int    `json:"defaultQuota"`
+				CurrentQuota   int    `json:"currentQuota"`
+				LastResetTime  string `json:"lastResetTime"`
 			} `json:"quotas"`
-		} `json:"module_quotas"`
+		} `json:"moduleQuotas"`
 	} `json:"data"`
 }
 
@@ -208,7 +208,23 @@ func GetMonicaQuota(cfg *config.Config) (*MonicaQuotaResponse, error) {
 
 	// 准备请求数据
 	requestData := map[string]interface{}{
-		"modules": []string{"genius_bot", "credits"},
+		"modules": []string{
+			"basic_query",
+			"genius_bot",
+			"credits",
+			"image_translate",
+			"ai_content_detect",
+			"reading_pdf",
+			"screenshot_qa",
+			"web_search",
+			"youtube_summarize",
+			"image_gen",
+			"bypass",
+			"podcast",
+			"mindmap",
+			"audio_transcription",
+			"batch_processor",
+		},
 	}
 
 	// 发送请求

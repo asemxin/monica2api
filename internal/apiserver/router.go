@@ -10,6 +10,7 @@ import (
 	"monica-proxy/internal/monica"
 	"monica-proxy/internal/service"
 	"monica-proxy/internal/types"
+	"monica-proxy/internal/utils"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -37,6 +38,7 @@ func RegisterRoutes(e *echo.Echo, cfg *config.Config) {
 	api.POST("/v1/chat/completions", createChatCompletionHandler(chatService, customBotService, cfg))
 	// 获取支持的模型列表
 	api.GET("/v1/models", createListModelsHandler(modelService))
+	api.GET("/v1/usage", createUsageHandler(cfg))
 	// DALL-E 风格的图片生成请求
 	api.POST("/v1/images/generations", createImageGenerationHandler(imageService))
 
@@ -50,6 +52,77 @@ func RegisterRoutes(e *echo.Echo, cfg *config.Config) {
 	api.POST("/v1/chat/custom-bot/:bot_uid", createCustomBotHandler(customBotService, cfg))
 	// 新增不带bot_uid的路由，使用环境变量中的BOT_UID
 	api.POST("/v1/chat/custom-bot", createCustomBotHandler(customBotService, cfg))
+}
+
+func createUsageHandler(cfg *config.Config) echo.HandlerFunc {
+	type quota struct {
+		Module         string `json:"module"`
+		Scene          string `json:"scene"`
+		ResetFrequency string `json:"resetFrequency"`
+		DefaultQuota   int    `json:"defaultQuota"`
+		CurrentQuota   int    `json:"currentQuota"`
+		LastResetTime  string `json:"lastResetTime"`
+		Unlimited      bool   `json:"unlimited"`
+	}
+	type advancedCredits struct {
+		Remaining int    `json:"remaining"`
+		Total     int    `json:"total"`
+		Reset     string `json:"reset"`
+		Available bool   `json:"available"`
+	}
+	type usageSummary struct {
+		Plan            string          `json:"plan"`
+		StandardQueries string          `json:"standardQueries"`
+		AdvancedQueries string          `json:"advancedQueries"`
+		AdvancedCredits advancedCredits `json:"advancedCredits"`
+	}
+
+	return func(c echo.Context) error {
+		summary := usageSummary{
+			Plan:            "Max",
+			StandardQueries: "unlimited",
+			AdvancedQueries: "unlimited",
+		}
+
+		resp, err := utils.GetMonicaQuota(cfg)
+		if err != nil {
+			return c.JSON(http.StatusBadGateway, map[string]any{
+				"error":   err.Error(),
+				"summary": summary,
+				"quotas":  []quota{},
+			})
+		}
+
+		quotas := make([]quota, 0)
+		for _, module := range resp.Data.ModuleQuotas {
+			for _, item := range module.Quotas {
+				q := quota{
+					Module:         module.Module,
+					Scene:          item.Scene,
+					ResetFrequency: item.ResetFrequency,
+					DefaultQuota:   item.DefaultQuota,
+					CurrentQuota:   item.CurrentQuota,
+					LastResetTime:  item.LastResetTime,
+					Unlimited:      item.CurrentQuota >= 99999 || item.DefaultQuota >= 99999,
+				}
+				quotas = append(quotas, q)
+
+				if module.Module == "credits" && (!summary.AdvancedCredits.Available || item.DefaultQuota > summary.AdvancedCredits.Total) {
+					summary.AdvancedCredits = advancedCredits{
+						Remaining: item.CurrentQuota,
+						Total:     item.DefaultQuota,
+						Reset:     item.ResetFrequency,
+						Available: true,
+					}
+				}
+			}
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"summary": summary,
+			"quotas":  quotas,
+		})
+	}
 }
 
 // createChatCompletionHandler 创建聊天完成处理器
