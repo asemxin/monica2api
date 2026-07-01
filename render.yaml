@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: monica2api
+    runtime: go
+    plan: free
+    buildCommand: go build -ldflags "-s -w" -o bin/monica ./cmd/server
+    startCommand: ./bin/monica
+    envVars:
+      - key: SERVER_HOST
+        value: 0.0.0.0
+      - key: LOG_OUTPUT
+        value: stdout
+      - key: LOG_FORMAT
+        value: json
+      - key: MONICA_COOKIE
+        sync: false
+      - key: BEARER_TOKEN
+        generateValue: true
+      - key: ENABLE_CUSTOM_BOT_MODE
+        value: "false"
+      - key: BOT_UID
+        sync: false

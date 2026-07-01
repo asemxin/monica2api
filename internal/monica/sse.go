@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bytedance/sonic"
 	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
 )
@@ -162,7 +162,7 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 		sseData := sseDataPool.Get().(*SSEData)
 		
 		// 解析 JSON
-		if err := sonic.Unmarshal(jsonStr, sseData); err != nil {
+		if err := json.Unmarshal(jsonStr, sseData); err != nil {
 			// 立即归还对象到池中
 			*sseData = SSEData{}
 			sseDataPool.Put(sseData)
@@ -434,8 +434,13 @@ func StreamMonicaSSEToClientWithConfig(model string, w io.Writer, r io.Reader, c
 		// 从池中获取字符串构建器
 		sb := stringBuilderPool.Get().(*strings.Builder)
 		sb.WriteString("data: ")
-		sendLine, _ := sonic.MarshalString(sseMsg)
-		sb.WriteString(sendLine)
+		sendLine, err := json.Marshal(sseMsg)
+		if err != nil {
+			sb.Reset()
+			stringBuilderPool.Put(sb)
+			return fmt.Errorf("marshal error: %w", err)
+		}
+		sb.Write(sendLine)
 		sb.WriteString("\n\n")
 
 		// 写入缓冲区

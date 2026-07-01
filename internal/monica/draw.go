@@ -2,13 +2,13 @@ package monica
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"monica-proxy/internal/config"
 	"monica-proxy/internal/types"
 	"monica-proxy/internal/utils"
 	"time"
 
-	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 )
 
@@ -59,7 +59,7 @@ func GenerateImage(ctx context.Context, cfg *config.Config, req *types.ImageGene
 		} `json:"data"`
 	}
 
-	if err := sonic.Unmarshal(resp.Body(), &monicaResp); err != nil {
+	if err := json.Unmarshal(resp.Body(), &monicaResp); err != nil {
 		return nil, fmt.Errorf("failed to parse image generation response: %v", err)
 	}
 
