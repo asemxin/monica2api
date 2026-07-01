@@ -50,20 +50,64 @@ type AgentStatus struct {
 	} `json:"metadata"`
 }
 
+func extractSSEText(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []any:
+		for _, item := range v {
+			if text := extractSSEText(item); text != "" {
+				return text
+			}
+		}
+	case map[string]any:
+		for _, key := range []string{"text", "content", "message", "answer", "response", "delta"} {
+			if text := extractSSEText(v[key]); text != "" {
+				return text
+			}
+		}
+		for key, item := range v {
+			switch key {
+			case "id", "uid", "type", "role", "status", "object", "finish_reason", "finished", "created", "model", "usage":
+				continue
+			}
+			if text := extractSSEText(item); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func normalizeSSEData(rawJSON []byte, sseData *SSEData) {
+	if sseData.Text != "" {
+		return
+	}
+	if sseData.AgentStatus.Text != "" {
+		sseData.Text = sseData.AgentStatus.Text
+		return
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rawJSON, &raw); err != nil {
+		return
+	}
+	sseData.Text = extractSSEText(raw)
+}
+
 var (
 	sseDataPool = sync.Pool{
 		New: func() any {
 			return &SSEData{}
 		},
 	}
-	
+
 	// 字符串构建器池，复用strings.Builder
 	stringBuilderPool = sync.Pool{
 		New: func() any {
 			return &strings.Builder{}
 		},
 	}
-	
+
 	// 缓冲区池，复用字节缓冲区
 	bufferPool = sync.Pool{
 		New: func() any {
@@ -90,7 +134,7 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 	var err error
 	var chunkCount int64
 	var startTime = time.Now()
-	
+
 	for {
 		// 检查上下文是否已取消
 		select {
@@ -105,7 +149,7 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 			return p.ctx.Err()
 		default:
 		}
-		
+
 		line, err = p.reader.ReadBytes('\n')
 		if err != nil {
 			// EOF 和 上下文取消 都是正常结束，不应视为错误
@@ -119,7 +163,7 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 				}
 				return nil
 			}
-			
+
 			if p.cfg != nil && p.cfg.Logging.EnableRequestLog {
 				logger.Error("SSE流读取错误",
 					zap.String("model", p.model),
@@ -160,13 +204,13 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 
 		// 从对象池获取一个对象
 		sseData := sseDataPool.Get().(*SSEData)
-		
+
 		// 解析 JSON
 		if err := json.Unmarshal(jsonStr, sseData); err != nil {
 			// 立即归还对象到池中
 			*sseData = SSEData{}
 			sseDataPool.Put(sseData)
-			
+
 			if p.cfg != nil && p.cfg.Logging.EnableRequestLog {
 				logger.Error("SSE数据解析错误",
 					zap.String("model", p.model),
@@ -177,6 +221,7 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 			}
 			return fmt.Errorf("unmarshal error: %w", err)
 		}
+		normalizeSSEData(jsonStr, sseData)
 
 		// 记录chunk接收日志
 		atomic.AddInt64(&chunkCount, 1)
@@ -186,7 +231,7 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 			if len(textPreview) > 100 {
 				textPreview = textPreview[:100] + "..."
 			}
-			
+
 			logger.Debug("SSE数据chunk接收",
 				zap.String("model", p.model),
 				zap.Int64("chunk_number", chunkCount),
@@ -202,7 +247,7 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 			// 立即归还对象到池中
 			*sseData = SSEData{}
 			sseDataPool.Put(sseData)
-			
+
 			if p.cfg != nil && p.cfg.Logging.EnableRequestLog {
 				logger.Error("SSE数据处理错误",
 					zap.String("model", p.model),
@@ -212,7 +257,7 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 			}
 			return err
 		}
-		
+
 		// 使用完后立即归还对象到池中
 		*sseData = SSEData{}
 		sseDataPool.Put(sseData)
@@ -222,14 +267,14 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 // CollectMonicaSSEToCompletion 将 Monica SSE 转换为完整的 ChatCompletion 响应
 func CollectMonicaSSEToCompletion(model string, r io.Reader) (*openai.ChatCompletionResponse, error) {
 	ctx := context.Background()
-	
+
 	// 从池中获取字符串构建器
 	fullContentBuilder := stringBuilderPool.Get().(*strings.Builder)
 	defer func() {
 		fullContentBuilder.Reset()
 		stringBuilderPool.Put(fullContentBuilder)
 	}()
-	
+
 	processor := &processMonicaSSE{
 		reader: bufio.NewReaderSize(r, bufferSize),
 		model:  model,
@@ -351,7 +396,7 @@ func StreamMonicaSSEToClientWithConfig(model string, w io.Writer, r io.Reader, c
 	var thinkFlag bool
 	return processor.processSSEStream(func(sseData *SSEData) error {
 		atomic.AddInt64(&chunkCount, 1)
-		
+
 		var sseMsg types.ChatCompletionStreamResponse
 		switch {
 		case sseData.Finished:
@@ -450,7 +495,7 @@ func StreamMonicaSSEToClientWithConfig(model string, w io.Writer, r io.Reader, c
 			stringBuilderPool.Put(sb)
 			return fmt.Errorf("write error: %w", err)
 		}
-		
+
 		// 使用完毕，归还字符串构建器到池中
 		sb.Reset()
 		stringBuilderPool.Put(sb)
@@ -466,7 +511,7 @@ func StreamMonicaSSEToClientWithConfig(model string, w io.Writer, r io.Reader, c
 					zap.Duration("duration", time.Since(startTime)),
 				)
 			}
-			
+
 			writer.WriteString(dataPrefix)
 			writer.WriteString(sseFinish)
 			writer.WriteString(lineEnd)
