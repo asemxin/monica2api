@@ -518,15 +518,8 @@ const webGUIHTML = `<!doctype html>
       try {
         const assistantEl = addMessage('assistant', '');
         let reply = await streamChat(model, requestMessages, assistantEl);
-        if (!reply && model !== 'gpt-4o') {
-          setStatus('Retrying with gpt-4o...');
-          assistantEl.textContent = '';
-          modelEl.value = 'gpt-4o';
-          localStorage.setItem('monica2api_model', 'gpt-4o');
-          reply = await streamChat('gpt-4o', requestMessages, assistantEl);
-        }
         if (!reply) {
-          const hint = 'No content returned. The selected Monica model may be unavailable for the current account.';
+          const hint = 'No content returned from ' + model + '. The selected Monica model may be unavailable for the current account.';
           assistantEl.textContent = hint;
           reply = hint;
         }
