@@ -338,19 +338,25 @@ const webGUIHTML = `<!doctype html>
     let messages = [];
     let usageSummary = null;
 
-    const standardQueryModels = new Set(['gpt-4o', 'gpt-5.4-nano', 'gemini-3.1-flash-lite']);
-    const creditModels = new Set(['claude-fable-5']);
+    const creditModels = new Set([
+      'claude-fable-5',
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+      'google-nano-banana-2',
+      'nano-banana-2',
+      'gpt-5.4-pro',
+      'claude-opus-4-6',
+      'claude-opus-4-5'
+    ]);
 
     function modelUsageType(model) {
       if (creditModels.has(model)) return 'credits';
-      if (standardQueryModels.has(model)) return 'standard';
-      return 'advanced';
+      return 'included';
     }
     function usageLabel(model) {
       const type = modelUsageType(model);
       if (type === 'credits') return 'Advanced Credits';
-      if (type === 'standard') return 'Standard Queries';
-      return 'Advanced Queries';
+      return 'No Credits';
     }
 
     baseUrlEl.textContent = window.location.origin;
@@ -419,10 +425,8 @@ const webGUIHTML = `<!doctype html>
         const credits = usageSummary?.advancedCredits;
         const left = credits?.available ? ' Remaining credits: ' + credits.remaining + (credits.total ? ' / ' + credits.total + '.' : '.') : ' Credit balance is unavailable.';
         modelNoteEl.textContent = model + ' consumes Advanced Credits instead of Advanced Queries.' + left;
-      } else if (type === 'standard') {
-        modelNoteEl.textContent = model + ' uses Standard Queries. Your Max plan shows Standard Queries as unlimited.';
       } else {
-        modelNoteEl.textContent = model + ' uses Advanced Queries. Your Max plan shows Advanced Queries as unlimited.';
+        modelNoteEl.textContent = model + ' does not consume Advanced Credits on your Max plan.';
       }
     }
     function visibleReply(text) {
