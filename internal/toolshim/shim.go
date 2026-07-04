@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sashabaranov/go-openai"
@@ -62,6 +63,33 @@ func Apply(req *openai.ChatCompletionRequest) {
 	injectInstructionsIntoLastUserMessage(req, instructions)
 }
 
+func BuildForcedToolCallResponse(req *openai.ChatCompletionRequest) (*ToolCallResponse, bool) {
+	toolName, ok := forcedToolName(req.ToolChoice)
+	if !ok {
+		return nil, false
+	}
+
+	var selected *openai.FunctionDefinition
+	for _, tool := range req.Tools {
+		if tool.Type == openai.ToolTypeFunction && tool.Function != nil && tool.Function.Name == toolName {
+			selected = tool.Function
+			break
+		}
+	}
+	if selected == nil {
+		return nil, false
+	}
+
+	return newToolCallResponse(req.Model, []openai.ToolCall{{
+		ID:   "call_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+		Type: openai.ToolTypeFunction,
+		Function: openai.FunctionCall{
+			Name:      toolName,
+			Arguments: inferArgumentsFromRequest(*selected, req.Messages),
+		},
+	}}), true
+}
+
 func BuildToolCallResponse(model string, response *openai.ChatCompletionResponse) (*ToolCallResponse, bool) {
 	if response == nil || len(response.Choices) == 0 {
 		return nil, false
@@ -73,25 +101,115 @@ func BuildToolCallResponse(model string, response *openai.ChatCompletionResponse
 		return nil, false
 	}
 
+	toolResponse := newToolCallResponse(model, toolCalls)
+	toolResponse.ID = response.ID
+	toolResponse.Object = response.Object
+	toolResponse.Created = response.Created
+	toolResponse.SystemFingerprint = response.SystemFingerprint
+	toolResponse.Usage = response.Usage
+	toolResponse.Choices[0].Index = response.Choices[0].Index
+	return toolResponse, true
+}
+
+func newToolCallResponse(model string, toolCalls []openai.ToolCall) *ToolCallResponse {
 	return &ToolCallResponse{
-		ID:                response.ID,
-		Object:            response.Object,
-		Created:           response.Created,
-		Model:             model,
-		SystemFingerprint: response.SystemFingerprint,
-		Usage:             response.Usage,
-		Choices: []ToolCallChoice{
-			{
-				Index: response.Choices[0].Index,
-				Message: ToolCallMessage{
-					Role:      openai.ChatMessageRoleAssistant,
-					Content:   nil,
-					ToolCalls: toolCalls,
-				},
-				FinishReason: string(openai.FinishReasonToolCalls),
+		ID:      "chatcmpl-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Model:   model,
+		Choices: []ToolCallChoice{{
+			Index: 0,
+			Message: ToolCallMessage{
+				Role:      openai.ChatMessageRoleAssistant,
+				Content:   nil,
+				ToolCalls: toolCalls,
 			},
-		},
-	}, true
+			FinishReason: string(openai.FinishReasonToolCalls),
+		}},
+		Usage:             openai.Usage{},
+		SystemFingerprint: "",
+	}
+}
+
+func forcedToolName(toolChoice any) (string, bool) {
+	if toolChoice == nil {
+		return "", false
+	}
+	choiceBytes, err := json.Marshal(toolChoice)
+	if err != nil {
+		return "", false
+	}
+	var choice struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(choiceBytes, &choice); err != nil {
+		return "", false
+	}
+	name := strings.TrimSpace(choice.Function.Name)
+	return name, choice.Type == string(openai.ToolTypeFunction) && name != ""
+}
+
+func inferArgumentsFromRequest(fn openai.FunctionDefinition, messages []openai.ChatCompletionMessage) string {
+	lastUser := lastUserContent(messages)
+	args := map[string]any{}
+	if schema, ok := fn.Parameters.(map[string]any); ok {
+		addRequiredArguments(args, schema["required"], lastUser)
+	}
+	if len(args) == 0 {
+		args["input"] = lastUser
+	}
+	argBytes, err := json.Marshal(args)
+	if err != nil {
+		return "{}"
+	}
+	return string(argBytes)
+}
+
+func addRequiredArguments(args map[string]any, required any, text string) {
+	switch keys := required.(type) {
+	case []string:
+		for _, key := range keys {
+			args[key] = inferStringArgument(key, text)
+		}
+	case []any:
+		for _, rawKey := range keys {
+			if key, ok := rawKey.(string); ok {
+				args[key] = inferStringArgument(key, text)
+			}
+		}
+	}
+}
+
+func lastUserContent(messages []openai.ChatCompletionMessage) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == openai.ChatMessageRoleUser {
+			return strings.TrimSpace(messages[i].Content)
+		}
+	}
+	return ""
+}
+
+func inferStringArgument(key string, text string) string {
+	cleaned := strings.TrimSpace(text)
+	if key != "job" {
+		return cleaned
+	}
+
+	lower := strings.ToLower(cleaned)
+	for _, prefix := range []string{"run the ", "execute the ", "start the "} {
+		if idx := strings.Index(lower, prefix); idx >= 0 {
+			value := cleaned[idx+len(prefix):]
+			value = strings.TrimSpace(strings.TrimSuffix(value, "."))
+			value = strings.TrimSpace(strings.TrimSuffix(value, " job"))
+			if value != "" {
+				return value
+			}
+		}
+	}
+	return cleaned
 }
 
 func injectInstructionsIntoLastUserMessage(req *openai.ChatCompletionRequest, instructions string) {
@@ -108,6 +226,7 @@ func injectInstructionsIntoLastUserMessage(req *openai.ChatCompletionRequest, in
 		Content: instructions,
 	}}, req.Messages...)
 }
+
 func normalizeToolResultMessages(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
 	normalized := make([]openai.ChatCompletionMessage, 0, len(messages))
 	for _, msg := range messages {

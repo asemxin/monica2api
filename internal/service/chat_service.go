@@ -35,6 +35,9 @@ func (s *chatService) HandleChatCompletion(ctx context.Context, req *openai.Chat
 
 	toolShimEnabled := toolshim.ShouldApply(req)
 	if toolShimEnabled {
+		if toolResponse, ok := toolshim.BuildForcedToolCallResponse(req); ok {
+			return toolResponse, nil
+		}
 		toolshim.Apply(req)
 		// The Monica web channel cannot stream native client tool calls. Collect
 		// the model output first, then convert a JSON tool-call envelope to the

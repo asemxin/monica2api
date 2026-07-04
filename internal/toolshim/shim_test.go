@@ -67,6 +67,56 @@ func TestApplyInjectsToolInstructionsAndNormalizesToolMessages(t *testing.T) {
 	}
 }
 
+func TestBuildForcedToolCallResponse(t *testing.T) {
+	req := &openai.ChatCompletionRequest{
+		Model: "claude-5-sonnet",
+		Messages: []openai.ChatCompletionMessage{{
+			Role:    openai.ChatMessageRoleUser,
+			Content: "Run the morning report job.",
+		}},
+		Tools: []openai.Tool{{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        "run_cron_job",
+				Description: "Run a cron job by name",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"job": map[string]any{"type": "string"},
+					},
+					"required": []string{"job"},
+				},
+			},
+		}},
+		ToolChoice: map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name": "run_cron_job",
+			},
+		},
+	}
+
+	toolResp, ok := BuildForcedToolCallResponse(req)
+	if !ok {
+		t.Fatal("expected forced tool call response")
+	}
+
+	encoded, err := json.Marshal(toolResp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"finish_reason":"tool_calls"`) || !strings.Contains(string(encoded), `"content":null`) {
+		t.Fatalf("invalid forced tool response: %s", encoded)
+	}
+
+	call := toolResp.Choices[0].Message.ToolCalls[0]
+	if call.Function.Name != "run_cron_job" {
+		t.Fatalf("tool name = %q", call.Function.Name)
+	}
+	if !strings.Contains(call.Function.Arguments, "morning report") {
+		t.Fatalf("arguments did not include inferred job: %q", call.Function.Arguments)
+	}
+}
 func TestBuildToolCallResponse(t *testing.T) {
 	resp := &openai.ChatCompletionResponse{
 		ID:      "chatcmpl_test",
