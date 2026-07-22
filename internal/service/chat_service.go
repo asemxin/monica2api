@@ -33,9 +33,15 @@ func (s *chatService) HandleChatCompletion(ctx context.Context, req *openai.Chat
 		return nil, errors.NewEmptyMessageError()
 	}
 
+	requestedStream := req.Stream
+	defer func() { req.Stream = requestedStream }()
+
 	toolShimEnabled := toolshim.ShouldApply(req)
 	if toolShimEnabled {
 		if toolResponse, ok := toolshim.BuildForcedToolCallResponse(req); ok {
+			if requestedStream {
+				return toolshim.StreamResponse(toolResponse)
+			}
 			return toolResponse, nil
 		}
 		toolshim.Apply(req)
@@ -74,7 +80,13 @@ func (s *chatService) HandleChatCompletion(ctx context.Context, req *openai.Chat
 
 	if toolShimEnabled {
 		if toolResponse, ok := toolshim.BuildToolCallResponse(req.Model, response); ok {
+			if requestedStream {
+				return toolshim.StreamResponse(toolResponse)
+			}
 			return toolResponse, nil
+		}
+		if requestedStream {
+			return toolshim.StreamResponse(response)
 		}
 	}
 

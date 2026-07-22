@@ -1,7 +1,9 @@
 package toolshim
 
 import (
+	"bufio"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
@@ -181,5 +183,59 @@ func TestBuildToolCallResponseIgnoresNormalText(t *testing.T) {
 
 	if _, ok := BuildToolCallResponse("claude-5-sonnet", resp); ok {
 		t.Fatal("normal text should not be converted")
+	}
+}
+
+func TestStreamResponseEncodesToolCallsAsSSE(t *testing.T) {
+	response := newToolCallResponse("gpt-5.5", []openai.ToolCall{{ID: "call_test", Type: openai.ToolTypeFunction, Function: openai.FunctionCall{Name: "echo", Arguments: `{"text":"OK"}`}}})
+	stream, err := StreamResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	body, err := io.ReadAll(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, `"object":"chat.completion.chunk"`) {
+		t.Fatalf("missing stream chunk: %s", text)
+	}
+	if !strings.Contains(text, `"tool_calls":[{"index":0,"id":"call_test"`) {
+		t.Fatalf("missing tool call: %s", text)
+	}
+	if !strings.Contains(text, `"finish_reason":"tool_calls"`) {
+		t.Fatalf("missing finish reason: %s", text)
+	}
+	if !strings.HasSuffix(text, "data: [DONE]\n\n") {
+		t.Fatalf("missing terminator: %s", text)
+	}
+	scanner := bufio.NewScanner(strings.NewReader(text))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: {") {
+			continue
+		}
+		var chunk map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &chunk); err != nil {
+			t.Fatalf("invalid chunk: %v", err)
+		}
+	}
+}
+
+func TestStreamResponseEncodesCollectedTextAsSSE(t *testing.T) {
+	response := &openai.ChatCompletionResponse{ID: "chatcmpl_text", Object: "chat.completion", Created: 123, Model: "gpt-5.5", Choices: []openai.ChatCompletionChoice{{Index: 0, Message: openai.ChatCompletionMessage{Role: openai.ChatMessageRoleAssistant, Content: "normal answer"}, FinishReason: openai.FinishReasonStop}}}
+	stream, err := StreamResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	body, _ := io.ReadAll(stream)
+	text := string(body)
+	if !strings.Contains(text, `"content":"normal answer"`) {
+		t.Fatalf("missing content: %s", text)
+	}
+	if !strings.Contains(text, `"finish_reason":"stop"`) {
+		t.Fatalf("missing finish reason: %s", text)
 	}
 }

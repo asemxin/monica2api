@@ -3,6 +3,7 @@ package toolshim
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -30,6 +31,25 @@ type ToolCallMessage struct {
 	Role      string            `json:"role"`
 	Content   *string           `json:"content"`
 	ToolCalls []openai.ToolCall `json:"tool_calls"`
+}
+
+type streamChunk struct {
+	ID                string              `json:"id"`
+	Object            string              `json:"object"`
+	Created           int64               `json:"created"`
+	Model             string              `json:"model"`
+	Choices           []streamChunkChoice `json:"choices"`
+	SystemFingerprint string              `json:"system_fingerprint,omitempty"`
+}
+type streamChunkChoice struct {
+	Index        int              `json:"index"`
+	Delta        streamChunkDelta `json:"delta"`
+	FinishReason *string          `json:"finish_reason"`
+}
+type streamChunkDelta struct {
+	Role      string            `json:"role,omitempty"`
+	Content   string            `json:"content,omitempty"`
+	ToolCalls []openai.ToolCall `json:"tool_calls,omitempty"`
 }
 
 type toolSpec struct {
@@ -109,6 +129,68 @@ func BuildToolCallResponse(model string, response *openai.ChatCompletionResponse
 	toolResponse.Usage = response.Usage
 	toolResponse.Choices[0].Index = response.Choices[0].Index
 	return toolResponse, true
+}
+
+// StreamResponse converts a collected completion back into an OpenAI-compatible
+// SSE stream. Monica cannot execute client tools natively, so the shim collects
+// its answer first. Returning ordinary JSON after a stream=true request violates
+// the Chat Completions contract and breaks streaming clients such as CC Switch.
+func StreamResponse(response any) (io.ReadCloser, error) {
+	var chunks []streamChunk
+	switch value := response.(type) {
+	case *ToolCallResponse:
+		if value == nil || len(value.Choices) == 0 {
+			return nil, fmt.Errorf("tool response has no choices")
+		}
+		choice := value.Choices[0]
+		chunks = completionChunks(value.ID, value.Created, value.Model, value.SystemFingerprint, choice.Index, "", choice.Message.ToolCalls, choice.FinishReason)
+	case *openai.ChatCompletionResponse:
+		if value == nil || len(value.Choices) == 0 {
+			return nil, fmt.Errorf("chat response has no choices")
+		}
+		choice := value.Choices[0]
+		chunks = completionChunks(value.ID, value.Created, value.Model, value.SystemFingerprint, choice.Index, choice.Message.Content, choice.Message.ToolCalls, string(choice.FinishReason))
+	default:
+		return nil, fmt.Errorf("unsupported stream response type %T", response)
+	}
+	var output strings.Builder
+	for _, chunk := range chunks {
+		encoded, err := json.Marshal(chunk)
+		if err != nil {
+			return nil, fmt.Errorf("marshal stream chunk: %w", err)
+		}
+		output.WriteString("data: ")
+		output.Write(encoded)
+		output.WriteString("\n\n")
+	}
+	output.WriteString("data: [DONE]\n\n")
+	return io.NopCloser(strings.NewReader(output.String())), nil
+}
+
+func completionChunks(id string, created int64, model, fingerprint string, index int, content string, toolCalls []openai.ToolCall, finishReason string) []streamChunk {
+	if id == "" {
+		id = "chatcmpl-" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	}
+	if created == 0 {
+		created = time.Now().Unix()
+	}
+	if finishReason == "" {
+		finishReason = string(openai.FinishReasonStop)
+	}
+	streamToolCalls := make([]openai.ToolCall, len(toolCalls))
+	copy(streamToolCalls, toolCalls)
+	for i := range streamToolCalls {
+		if streamToolCalls[i].Index == nil {
+			toolIndex := i
+			streamToolCalls[i].Index = &toolIndex
+		}
+	}
+	chunks := make([]streamChunk, 0, 2)
+	if content != "" || len(streamToolCalls) > 0 {
+		chunks = append(chunks, streamChunk{ID: id, Object: "chat.completion.chunk", Created: created, Model: model, Choices: []streamChunkChoice{{Index: index, Delta: streamChunkDelta{Role: openai.ChatMessageRoleAssistant, Content: content, ToolCalls: streamToolCalls}}}, SystemFingerprint: fingerprint})
+	}
+	chunks = append(chunks, streamChunk{ID: id, Object: "chat.completion.chunk", Created: created, Model: model, Choices: []streamChunkChoice{{Index: index, Delta: streamChunkDelta{}, FinishReason: &finishReason}}, SystemFingerprint: fingerprint})
+	return chunks
 }
 
 func newToolCallResponse(model string, toolCalls []openai.ToolCall) *ToolCallResponse {
