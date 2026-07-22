@@ -41,6 +41,11 @@ type streamChunk struct {
 	Choices           []streamChunkChoice `json:"choices"`
 	SystemFingerprint string              `json:"system_fingerprint,omitempty"`
 }
+
+// OpenAIStream marks an SSE body that already follows the OpenAI wire format.
+type OpenAIStream struct{ io.ReadCloser }
+
+func (*OpenAIStream) OpenAICompatibleSSE() {}
 type streamChunkChoice struct {
 	Index        int              `json:"index"`
 	Delta        streamChunkDelta `json:"delta"`
@@ -164,7 +169,7 @@ func StreamResponse(response any) (io.ReadCloser, error) {
 		output.WriteString("\n\n")
 	}
 	output.WriteString("data: [DONE]\n\n")
-	return io.NopCloser(strings.NewReader(output.String())), nil
+	return &OpenAIStream{ReadCloser: io.NopCloser(strings.NewReader(output.String()))}, nil
 }
 
 func completionChunks(id string, created int64, model, fingerprint string, index int, content string, toolCalls []openai.ToolCall, finishReason string) []streamChunk {
@@ -445,3 +450,4 @@ func extractJSONObject(content string) string {
 	}
 	return ""
 }
+
