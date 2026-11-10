@@ -475,6 +475,7 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 			continue
 		}
 		var msgContext string
+		var textParts []string
 		var attachments []AttachmentRequest
 
 		// 处理多内容消息 (当前主要支持图片，为将来扩展做准备)
@@ -482,22 +483,24 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 			for _, content := range msg.MultiContent {
 				switch content.Type {
 				case "text":
-					msgContext = content.Text
-
-					// 检测文本内容中的文件信息
-					if strings.Contains(msgContext, "[file name]:") && strings.Contains(msgContext, "[file content begin]") {
-						// 提取文件名和文件内容
-						fileName, fileContent, found := extractFileFromText(msgContext)
-						if found {
-							attachments = append(attachments, AttachmentRequest{
-								Type:     "document",
-								Data:     fileContent,
-								FileName: fileName,
-								MimeType: "text/markdown",
-							})
-							// 清空文本内容，避免重复
-							msgContext = ""
+					// 一条消息可能有多个 text part（例如 Cherry Studio 把文件内容和问题分开发送），
+					// 需要全部保留；其中的文件块单独提取为附件。
+					text := content.Text
+					for {
+						fileName, fileContent, start, end, ok := findFileBlock(text)
+						if !ok {
+							break
 						}
+						attachments = append(attachments, AttachmentRequest{
+							Type:     "document",
+							Data:     fileContent,
+							FileName: fileName,
+							MimeType: "text/markdown",
+						})
+						text = text[:start] + text[end:]
+					}
+					if t := strings.TrimSpace(text); t != "" {
+						textParts = append(textParts, t)
 					}
 
 				case "image_url":
@@ -515,6 +518,12 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 					logger.Warn("不支持的内容类型", zap.String("type", string(content.Type)))
 				}
 			}
+		}
+
+		if len(msg.MultiContent) > 0 {
+			msgContext = strings.Join(textParts, "\n\n")
+		} else {
+			msgContext = msg.Content
 		}
 
 		itemID := fmt.Sprintf("msg:%s", uuid.New().String())
@@ -605,16 +614,29 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 				)
 			}
 
-			content = ItemContent{
-				Type:        "file_with_text",
-				Content:     msgContext,
-				FileInfos:   fileInfoList,
-				IsIncognito: true,
+			// 上传失败的文本文档直接内联到消息里，避免文件内容丢失
+			if int(successCount) < len(attachments) {
+				msgContext = inlineFailedDocuments(msgContext, attachments, uploadResults)
+			}
+
+			if len(fileInfoList) > 0 {
+				content = ItemContent{
+					Type:        "file_with_text",
+					Content:     msgContext,
+					FileInfos:   fileInfoList,
+					IsIncognito: true,
+				}
+			} else {
+				content = ItemContent{
+					Type:        "text",
+					Content:     msgContext,
+					IsIncognito: true,
+				}
 			}
 		} else {
 			content = ItemContent{
 				Type:        "text",
-				Content:     msg.Content,
+				Content:     msgContext,
 				IsIncognito: true,
 			}
 		}
@@ -842,4 +864,46 @@ func extractFileFromText(text string) (fileName, fileContent string, found bool)
 	fileContent = strings.TrimSpace(text[contentStart:contentEnd])
 
 	return fileName, fileContent, true
+}
+
+// findFileBlock 在文本中查找一个 "[file name]: ... [file content begin] ... [file content end]" 文件块，
+// 返回文件名、内容以及该块在文本中的起止位置。
+func findFileBlock(text string) (fileName, fileContent string, start, end int, found bool) {
+	start = strings.Index(text, "[file name]:")
+	if start == -1 {
+		return
+	}
+	rest := text[start+len("[file name]:"):]
+	nl := strings.Index(rest, "\n")
+	if nl == -1 {
+		return
+	}
+	fileName = strings.TrimSpace(rest[:nl])
+	beginRel := strings.Index(rest, "[file content begin]")
+	endRel := strings.Index(rest, "[file content end]")
+	if beginRel == -1 || endRel == -1 || endRel < beginRel {
+		return
+	}
+	fileContent = strings.TrimSpace(rest[beginRel+len("[file content begin]") : endRel])
+	end = start + len("[file name]:") + endRel + len("[file content end]")
+	found = true
+	return
+}
+
+// inlineFailedDocuments 把上传失败的文本文档以原始格式拼回消息
+func inlineFailedDocuments(msgContext string, attachments []AttachmentRequest, results []*FileInfo) string {
+	var b strings.Builder
+	for i, att := range attachments {
+		if i < len(results) && results[i] != nil {
+			continue
+		}
+		if att.Type != "document" {
+			continue
+		}
+		fmt.Fprintf(&b, "[file name]: %s\n[file content begin]\n%s\n[file content end]\n\n", att.FileName, att.Data)
+	}
+	if b.Len() == 0 {
+		return msgContext
+	}
+	return b.String() + msgContext
 }
