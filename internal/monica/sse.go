@@ -79,8 +79,52 @@ func extractSSEText(value any) string {
 	return ""
 }
 
+// nonContentKeyHints 标记 Monica 附带的非正文字段（推荐追问、相关问题等）。
+// 这些字段不能被当作回答正文，否则会被拼接到回复末尾。
+var nonContentKeyHints = []string{"suggest", "question", "recommend", "related", "follow"}
+
+func isNonContentKey(key string) bool {
+	k := strings.ToLower(key)
+	for _, h := range nonContentKeyHints {
+		if strings.Contains(k, h) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNonContentKey(value any) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, item := range v {
+			if isNonContentKey(key) || hasNonContentKey(item) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if hasNonContentKey(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func normalizeSSEData(rawJSON []byte, sseData *SSEData) {
 	if sseData.Text != "" {
+		return
+	}
+	agentType := strings.ToLower(sseData.AgentStatus.Type)
+	if isNonContentKey(agentType) {
 		return
 	}
 	if sseData.AgentStatus.Text != "" {
@@ -91,7 +135,15 @@ func normalizeSSEData(rawJSON []byte, sseData *SSEData) {
 	if err := json.Unmarshal(rawJSON, &raw); err != nil {
 		return
 	}
+	// 含推荐追问等非正文字段的 chunk 直接忽略
+	if hasNonContentKey(raw) {
+		logger.Info("忽略 Monica 非正文 SSE chunk", zap.Strings("keys", mapKeys(raw)), zap.String("agent_type", sseData.AgentStatus.Type))
+		return
+	}
 	sseData.Text = extractSSEText(raw)
+	if sseData.Text != "" {
+		logger.Info("Monica SSE chunk 使用备用字段解析正文", zap.Strings("keys", mapKeys(raw)))
+	}
 }
 
 var (
