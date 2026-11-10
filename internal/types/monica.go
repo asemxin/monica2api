@@ -637,8 +637,8 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 		if items[i].ItemType == "question" {
 			items[i].Data.ChatModel = route.ChatModel
 			if !systemMerged {
-				items[i].Data.Content = "<system_instructions>\n" + strings.Join(systemParts, "\n\n") +
-					"\n</system_instructions>\n\n" + items[i].Data.Content
+				// 用纯文本前缀而不是 XML 标签：实测 Monica 会忽略标签包裹的指令
+				items[i].Data.Content = strings.Join(systemParts, "\n\n") + "\n\n" + items[i].Data.Content
 				systemMerged = true
 			}
 		}
