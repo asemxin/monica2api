@@ -93,30 +93,42 @@ func createUsageHandler(cfg *config.Config) echo.HandlerFunc {
 			})
 		}
 
+		// Monica 的额度以 1/100 为单位返回（例如 197194 表示 1971.94），
+		// 9999900 及以上表示不限量。
+		const quotaUnit = 100
+		const unlimitedQuota = 9999900
 		quotas := make([]quota, 0)
+		credits := advancedCredits{}
 		for _, module := range resp.Data.ModuleQuotas {
 			for _, item := range module.Quotas {
 				q := quota{
 					Module:         module.Module,
 					Scene:          item.Scene,
 					ResetFrequency: item.ResetFrequency,
-					DefaultQuota:   item.DefaultQuota,
-					CurrentQuota:   item.CurrentQuota,
+					DefaultQuota:   item.DefaultQuota / quotaUnit,
+					CurrentQuota:   item.CurrentQuota / quotaUnit,
 					LastResetTime:  item.LastResetTime,
-					Unlimited:      item.CurrentQuota >= 99999 || item.DefaultQuota >= 99999,
+					Unlimited:      item.CurrentQuota >= unlimitedQuota || item.DefaultQuota >= unlimitedQuota,
 				}
 				quotas = append(quotas, q)
 
-				if module.Module == "credits" && (!summary.AdvancedCredits.Available || item.DefaultQuota > summary.AdvancedCredits.Total) {
-					summary.AdvancedCredits = advancedCredits{
-						Remaining: item.CurrentQuota,
-						Total:     item.DefaultQuota,
-						Reset:     item.ResetFrequency,
-						Available: true,
+				if module.Module == "credits" {
+					credits.Remaining += item.CurrentQuota / quotaUnit
+					credits.Total += item.DefaultQuota / quotaUnit
+					if item.Scene == "plan" {
+						credits.Reset = item.ResetFrequency
 					}
+					credits.Available = true
+				}
+				if module.Module == "genius_bot" && item.Scene == "plan" && !q.Unlimited {
+					summary.AdvancedQueries = fmt.Sprintf("%d", q.CurrentQuota)
+				}
+				if module.Module == "basic_query" && item.Scene == "plan" && !q.Unlimited {
+					summary.StandardQueries = fmt.Sprintf("%d", q.CurrentQuota)
 				}
 			}
 		}
+		summary.AdvancedCredits = credits
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"summary": summary,
