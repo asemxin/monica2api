@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"monica-proxy/internal/config"
@@ -12,6 +13,8 @@ import (
 	"monica-proxy/internal/types"
 	"monica-proxy/internal/utils"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/sashabaranov/go-openai"
@@ -35,7 +38,7 @@ func RegisterRoutes(e *echo.Echo, cfg *config.Config) {
 	fileService := service.NewFileService(cfg)
 
 	// ChatGPT 风格的请求转发到 /v1/chat/completions
-	api.POST("/v1/chat/completions", createChatCompletionHandler(chatService, customBotService, cfg))
+	api.POST("/v1/chat/completions", createChatCompletionHandler(chatService, customBotService, imageService, cfg))
 	// 获取支持的模型列表
 	api.GET("/v1/models", createListModelsHandler(modelService))
 	api.GET("/v1/usage", createUsageHandler(cfg))
@@ -138,11 +141,16 @@ func createUsageHandler(cfg *config.Config) echo.HandlerFunc {
 }
 
 // createChatCompletionHandler 创建聊天完成处理器
-func createChatCompletionHandler(chatService service.ChatService, customBotService service.CustomBotService, cfg *config.Config) echo.HandlerFunc {
+func createChatCompletionHandler(chatService service.ChatService, customBotService service.CustomBotService, imageService service.ImageService, cfg *config.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req openai.ChatCompletionRequest
 		if err := c.Bind(&req); err != nil {
 			return errors.NewBadRequestError("无效的请求数据", err)
+		}
+
+		// 选了画图模型：把最后一条用户消息当作提示词生成图片，以 Markdown 图片返回
+		if types.IsImageModel(req.Model) {
+			return handleImageModelChat(c, imageService, req)
 		}
 
 		ctx := c.Request().Context()
@@ -237,7 +245,7 @@ func createImageGenerationHandler(imageService service.ImageService) echo.Handle
 		// 调用服务生成图片
 		resp, err := imageService.GenerateImage(c.Request().Context(), &req)
 		if err != nil {
-			return err
+			return errors.NewRequestFailedError("图片生成失败: "+err.Error(), err)
 		}
 
 		// 返回结果
@@ -393,4 +401,81 @@ func createDeleteFileHandler(fileService service.FileService) echo.HandlerFunc {
 
 		return c.JSON(http.StatusOK, response)
 	}
+}
+
+// handleImageModelChat 在聊天接口里调用画图模型
+func handleImageModelChat(c echo.Context, imageService service.ImageService, req openai.ChatCompletionRequest) error {
+	prompt := ""
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		m := req.Messages[i]
+		if m.Role != openai.ChatMessageRoleUser {
+			continue
+		}
+		prompt = m.Content
+		if prompt == "" {
+			var parts []string
+			for _, p := range m.MultiContent {
+				if p.Type == openai.ChatMessagePartTypeText && p.Text != "" {
+					parts = append(parts, p.Text)
+				}
+			}
+			prompt = strings.Join(parts, "\n")
+		}
+		break
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return errors.NewBadRequestError("画图需要一条文字描述", nil)
+	}
+
+	imgResp, err := imageService.GenerateImage(c.Request().Context(), &types.ImageGenerationRequest{Model: req.Model, Prompt: prompt, N: 1})
+	if err != nil {
+		return errors.NewRequestFailedError("图片生成失败: "+err.Error(), err)
+	}
+	var sb strings.Builder
+	for i, img := range imgResp.Data {
+		if i > 0 {
+			sb.WriteString("\n\n")
+		}
+		fmt.Fprintf(&sb, "![image](%s)", img.URL)
+	}
+	content := sb.String()
+	id := fmt.Sprintf("chatcmpl-img%d", time.Now().UnixNano())
+	created := time.Now().Unix()
+
+	if !req.Stream {
+		return c.JSON(http.StatusOK, openai.ChatCompletionResponse{
+			ID: id, Object: "chat.completion", Created: created, Model: req.Model,
+			Choices: []openai.ChatCompletionChoice{{
+				Index:        0,
+				Message:      openai.ChatCompletionMessage{Role: openai.ChatMessageRoleAssistant, Content: content},
+				FinishReason: openai.FinishReasonStop,
+			}},
+		})
+	}
+
+	w := c.Response()
+	w.Header().Set(echo.HeaderContentType, "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	chunk := func(delta string, finish openai.FinishReason) {
+		b, _ := json.Marshal(map[string]any{
+			"id": id, "object": "chat.completion.chunk", "created": created, "model": req.Model,
+			"choices": []map[string]any{{
+				"index": 0,
+				"delta": map[string]any{"role": "assistant", "content": delta},
+				"finish_reason": func() any {
+					if finish == "" {
+						return nil
+					}
+					return finish
+				}(),
+			}},
+		})
+		fmt.Fprintf(w, "data: %s\n\n", b)
+	}
+	chunk(content, "")
+	chunk("", openai.FinishReasonStop)
+	fmt.Fprint(w, "data: [DONE]\n\n")
+	w.Flush()
+	return nil
 }
