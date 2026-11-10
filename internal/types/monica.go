@@ -196,12 +196,73 @@ type PreSignResponse struct {
 
 // MonicaImageRequest 文生图请求结构
 type MonicaImageRequest struct {
-	TaskUID     string `json:"task_uid"`     // 任务ID
-	ImageCount  int    `json:"image_count"`  // 生成图片数量
-	Prompt      string `json:"prompt"`       // 提示词
-	ModelType   string `json:"model_type"`   // 模型类型，目前只支持 sdxl
-	AspectRatio string `json:"aspect_ratio"` // 宽高比，如 1:1, 16:9, 9:16
-	TaskType    string `json:"task_type"`    // 任务类型，固定为 text_to_image
+	TaskUID      string `json:"task_uid"`                // 任务ID
+	ImageCount   int    `json:"image_count"`             // 生成图片数量
+	Prompt       string `json:"prompt"`                  // 提示词
+	ModelType    string `json:"model_type"`              // 模型类型，目前只支持 sdxl
+	AspectRatio  string `json:"aspect_ratio"`            // 宽高比，如 1:1, 16:9, 9:16
+	ImageQuality string `json:"image_quality,omitempty"` // low / medium / high（仅 GPT Image 系列）
+	OriginURL    string `json:"origin_url"`
+	TaskType     string `json:"task_type"` // 任务类型，固定为 text_to_image
+}
+
+// ImageModel 描述 Monica「AI 画图」支持的模型（api/app_config/get_app_configs 的 image_gen_config_list）
+type ImageModel struct {
+	ID            string
+	Ratios        []string
+	HasQuality    bool
+	CreditsPerImg int // low 质量下每张图消耗的高级积分
+}
+
+var imageModels = []ImageModel{
+	{"gpt-image-2.5-flare", []string{"1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2"}, true, 10},
+	{"gpt-image-2.5-sunburst", []string{"1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2"}, true, 10},
+	{"gpt-image-2", []string{"1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2"}, true, 10},
+	{"gpt-image-1.5", []string{"1:1", "2:3", "3:2"}, true, 10},
+	{"nano_banana_2", []string{"16:9", "1:1", "9:16"}, false, 40},
+	{"nano_banana_pro", []string{"16:9", "1:1", "9:16"}, false, 60},
+	{"flux_schnell", []string{"16:9", "1:1", "9:16"}, false, 3},
+	{"flux_dev", []string{"16:9", "1:1", "9:16"}, false, 5},
+	{"flux_ultra", []string{"16:9", "1:1", "9:16"}, false, 40},
+	{"playground2_5", []string{"16:9", "1:1", "9:16"}, false, 6},
+	{"recraft3", []string{"16:9", "4:3", "1:1", "3:4", "9:16"}, false, 30},
+	{"sd3_5", []string{"16:9", "1:1", "9:16"}, false, 65},
+	{"ideogram2", []string{"16:9", "1:1", "9:16"}, false, 80},
+}
+
+var imageModelAliases = map[string]string{
+	"":                "gpt-image-2.5-flare",
+	"dall-e-3":        "gpt-image-2.5-flare",
+	"dall-e-2":        "gpt-image-2.5-flare",
+	"gpt-image-1":     "gpt-image-2.5-flare",
+	"nano-banana-2":   "nano_banana_2",
+	"nano-banana-pro": "nano_banana_pro",
+	"flux-schnell":    "flux_schnell",
+	"flux-dev":        "flux_dev",
+	"sdxl":            "flux_schnell",
+}
+
+// ResolveImageModel 返回 Monica 画图模型；ok=false 表示不是画图模型
+func ResolveImageModel(name string) (ImageModel, bool) {
+	if alias, found := imageModelAliases[name]; found {
+		name = alias
+	}
+	for _, m := range imageModels {
+		if m.ID == name {
+			return m, true
+		}
+	}
+	return ImageModel{}, false
+}
+
+// IsImageModel 判断模型名是否是画图模型（不含别名，避免误伤聊天模型）
+func IsImageModel(name string) bool {
+	for _, m := range imageModels {
+		if m.ID == name {
+			return true
+		}
+	}
+	return false
 }
 
 // FileInfo 文件信息
@@ -438,6 +499,9 @@ func messageText(msg openai.ChatCompletionMessage) string {
 func GetSupportedModels() []string {
 	models := make([]string, 0, len(monicaModels))
 	for _, m := range monicaModels {
+		models = append(models, m.ID)
+	}
+	for _, m := range imageModels {
 		models = append(models, m.ID)
 	}
 	return models
