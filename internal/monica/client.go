@@ -91,6 +91,11 @@ func SendMonicaRequest(ctx context.Context, cfg *config.Config, mReq *types.Moni
 		return nil, errors.NewRequestFailedError("Monica API调用失败", err)
 	}
 
+	if err := validateUpstreamSSE(resp); err != nil {
+		logger.Error("Monica 上游返回错误", zap.Error(err))
+		return nil, err
+	}
+
 	return resp, nil
 }
 
@@ -169,6 +174,11 @@ func SendCustomBotRequest(ctx context.Context, cfg *config.Config, customBotReq 
 
 	if err != nil {
 		return nil, errors.NewRequestFailedError("Custom Bot API调用失败", err)
+	}
+
+	if err := validateUpstreamSSE(resp); err != nil {
+		logger.Error("Custom Bot 上游返回错误", zap.Error(err))
+		return nil, err
 	}
 
 	return resp, nil
