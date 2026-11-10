@@ -155,12 +155,12 @@ type MonicaQuotaResponse struct {
 			Module string `json:"module"`
 			Quotas []struct {
 				Scene          string `json:"scene"`
-				ResetFrequency string `json:"resetFrequency"`
-				DefaultQuota   int    `json:"defaultQuota"`
-				CurrentQuota   int    `json:"currentQuota"`
-				LastResetTime  string `json:"lastResetTime"`
+				ResetFrequency string `json:"reset_frequency"`
+				DefaultQuota   int    `json:"default_quota"`
+				CurrentQuota   int    `json:"current_quota"`
+				LastResetTime  string `json:"last_reset_time"`
 			} `json:"quotas"`
-		} `json:"moduleQuotas"`
+		} `json:"module_quotas"`
 	} `json:"data"`
 }
 
