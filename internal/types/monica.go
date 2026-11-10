@@ -420,6 +420,20 @@ const (
 	CustomBotChatURL    = "https://api.monica.im/api/custom_bot/preview_chat"
 )
 
+// messageText 提取消息中的纯文本内容
+func messageText(msg openai.ChatCompletionMessage) string {
+	if msg.Content != "" {
+		return msg.Content
+	}
+	var parts []string
+	for _, c := range msg.MultiContent {
+		if c.Type == openai.ChatMessagePartTypeText && c.Text != "" {
+			parts = append(parts, c.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
 // GetSupportedModels 获取支持的模型列表
 func GetSupportedModels() []string {
 	models := make([]string, 0, len(monicaModels))
@@ -451,9 +465,13 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 	items[0] = defaultItem
 	preItemID := defaultItem.ItemID
 
+	// Monica 的通用 bot 不接受 system prompt，这里收集起来，稍后合并到第一条用户消息里
+	var systemParts []string
 	for _, msg := range chatReq.Messages {
 		if msg.Role == "system" {
-			// monica不支持设置prompt，所以直接跳过
+			if text := strings.TrimSpace(messageText(msg)); text != "" {
+				systemParts = append(systemParts, text)
+			}
 			continue
 		}
 		var msgContext string
@@ -614,9 +632,15 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 
 	// 构建请求
 	route := modelToRoute(chatReq.Model)
+	systemMerged := len(systemParts) == 0
 	for i := range items {
 		if items[i].ItemType == "question" {
 			items[i].Data.ChatModel = route.ChatModel
+			if !systemMerged {
+				items[i].Data.Content = "<system_instructions>\n" + strings.Join(systemParts, "\n\n") +
+					"\n</system_instructions>\n\n" + items[i].Data.Content
+				systemMerged = true
+			}
 		}
 	}
 	mReq := &MonicaRequest{
