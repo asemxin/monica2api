@@ -338,15 +338,17 @@ const webGUIHTML = `<!doctype html>
     let messages = [];
     let usageSummary = null;
 
+    // 与 Monica 网页版 usage_module == "credits" 的模型保持一致
     const creditModels = new Set([
-      'claude-fable-5',
-      'claude-opus-4-8',
-      'claude-opus-4-7',
-      'google-nano-banana-2',
-      'nano-banana-2',
-      'gpt-5.4-pro',
+      'gemini-4-argon',
+      'claude-opus-5-5',
+      'grok-4.7',
+      'gpt-6-astra',
+      'claude-fable-5.1',
+      'glm-5.3',
+      'kimi-k3',
       'claude-opus-4-6',
-      'claude-opus-4-5'
+      'gemini-3.1-flash-image'
     ]);
 
     function modelUsageType(model) {
