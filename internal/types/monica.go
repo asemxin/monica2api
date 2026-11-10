@@ -494,7 +494,7 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 						attachments = append(attachments, AttachmentRequest{
 							Type:     "document",
 							Data:     fileContent,
-							FileName: fileName,
+							FileName: textFileName(fileName),
 							MimeType: "text/markdown",
 						})
 						text = text[:start] + text[end:]
@@ -906,4 +906,16 @@ func inlineFailedDocuments(msgContext string, attachments []AttachmentRequest, r
 		return msgContext
 	}
 	return b.String() + msgContext
+}
+
+// textFileName 客户端已把文件转成纯文本，上传时改用 .md 扩展名。
+// 否则 Monica 会把 "xxx.pdf" 当成真正的 PDF 解析并返回 500。
+func textFileName(name string) string {
+	lower := strings.ToLower(name)
+	for _, ext := range []string{".md", ".txt", ".markdown"} {
+		if strings.HasSuffix(lower, ext) {
+			return name
+		}
+	}
+	return name + ".md"
 }
