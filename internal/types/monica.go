@@ -166,6 +166,7 @@ type ItemContent struct {
 	FromTaskType           string     `json:"from_task_type,omitempty"`
 	ManualWebSearchEnabled bool       `json:"manual_web_search_enabled,omitempty"` // 网页搜索
 	UseModel               string     `json:"use_model,omitempty"`
+	ChatModel              string     `json:"chat_model,omitempty"`
 	FileInfos              []FileInfo `json:"file_infos,omitempty"`
 }
 
@@ -279,48 +280,87 @@ type OpenAIModelList struct {
 	Data   []OpenAIModel `json:"data"`
 }
 
+// MonicaBotUID 是 Monica 网页版通用聊天使用的 bot，模型由 chat_model/use_model 决定。
+// 之前使用的 gpt_4_o_chat 是 GPT-4o 专用 bot，会让所有模型都以 GPT-4o 的身份回答。
+const MonicaBotUID = "monica"
+
 type modelRoute struct {
-	BotUID   string
-	UseModel string
+	ChatModel string // Monica 网页版的模型 key，例如 claude_4_6_sonnet
+	UseModel  string // Monica 网页版的 use_model，例如 claude-sonnet-4-6
 }
 
-var modelRouteMap = map[string]modelRoute{
-	"gpt-4o": {BotUID: "gpt_4_o_chat"},
-
-	"gpt-5":         {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
-	"gpt-5.5":       {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.5"},
-	"gpt-5.4":       {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
-	"gpt-5.4-pro":   {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4-pro"},
-	"gpt-5.4-nano":  {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4-nano"},
-	"gpt-5.3-codex": {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.3-codex"},
-	"gpt-4-5":       {BotUID: "gpt_4_o_chat", UseModel: "gpt-5.4"},
-
-	"claude-4-sonnet":   {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-4-6"},
-	"claude-5-sonnet":   {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-5"},
-	"claude-sonnet-5":   {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-5"},
-	"claude-fable-5":    {BotUID: "gpt_4_o_chat", UseModel: "claude-fable-5"},
-	"claude-opus-4-8":   {BotUID: "gpt_4_o_chat", UseModel: "claude-opus-4-8"},
-	"claude-opus-4-7":   {BotUID: "gpt_4_o_chat", UseModel: "claude-opus-4-7"},
-	"claude-sonnet-4-6": {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-4-6"},
-	"claude-opus-4-6":   {BotUID: "gpt_4_o_chat", UseModel: "claude-opus-4-6"},
-	"claude-opus-4-5":   {BotUID: "gpt_4_o_chat", UseModel: "claude-opus-4-5"},
-	"claude-sonnet-4-5": {BotUID: "gpt_4_o_chat", UseModel: "claude-sonnet-4-5"},
-
-	"gemini-2.5-pro":                  {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-pro-preview-thinking"},
-	"gemini-3.1-pro":                  {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-pro-preview-thinking"},
-	"gemini-3.1-pro-preview-thinking": {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-pro-preview-thinking"},
-	"gemini-2.5-flash":                {BotUID: "gpt_4_o_chat", UseModel: "gemini-3-flash-preview"},
-	"gemini-3.5-flash":                {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.5-flash"},
-	"gemini-3-flash-preview":          {BotUID: "gpt_4_o_chat", UseModel: "gemini-3-flash-preview"},
-	"gemini-3.1-flash-lite":           {BotUID: "gpt_4_o_chat", UseModel: "gemini-3.1-flash-lite"},
+// monicaModels 与 Monica 网页版模型列表保持一致（api/app_config/get_app_configs）。
+// 对外暴露的模型 ID 即 Monica 的 use_model。
+var monicaModels = []struct{ ID, ChatModel string }{
+	{"gpt-6.1-terra", "gpt_6_1_terra"},
+	{"gpt-6.1-sol", "gpt_6_1_sol"},
+	{"gpt-6-sol", "gpt_6_sol"},
+	{"gpt-6-astra", "gpt_6_astra"},
+	{"gpt-6-luna", "gpt_6_luna"},
+	{"gpt-5.5", "gpt_5_5"},
+	{"gpt-4o", "gpt_4o"},
+	{"claude-opus-5-5", "claude_opus_5_5"},
+	{"claude-sonnet-5-5", "claude_sonnet_5_5"},
+	{"claude-haiku-5-5", "claude_haiku_5_5"},
+	{"claude-fable-5.1", "claude_fable_5_1"},
+	{"claude-opus-4-6", "claude_4_6_opus"},
+	{"claude-sonnet-4-6", "claude_4_6_sonnet"},
+	{"claude-sonnet-4-5", "claude_4_5_sonnet"},
+	{"gemini-4-argon", "gemini_4_argon"},
+	{"gemini-3.8-flash", "gemini_3_8_flash"},
+	{"gemini-3.1-pro-preview-thinking", "gemini_3_1_pro_preview_think"},
+	{"gemini-3.5-flash-lite", "gemini_3.5_flash_lite"},
+	{"gemini-3-flash-preview", "gemini_3_flash"},
+	{"gemini-3.1-flash-lite", "gemini_3_1_flash_lite"},
+	{"grok-4.7", "grok_4_7"},
+	{"deepseek-v4.1-flash", "deepseek_v4_1_flash"},
+	{"qwen3.8-max", "qwen_3_8-max"},
+	{"qwen3.8-flash", "qwen_3_8_flash"},
+	{"glm-5.3", "glm_5_3"},
+	{"glm-5.3-flash", "glm_5_3_flash"},
+	{"kimi-k3", "kimi_k3"},
 }
+
+// modelAliases 兼容旧的模型名，映射到 Monica 当前仍提供的最接近的模型。
+var modelAliases = map[string]string{
+	"gpt-5":            "gpt-5.5",
+	"gpt-5.4":          "gpt-5.5",
+	"gpt-5.4-pro":      "gpt-5.5",
+	"gpt-5.4-nano":     "gpt-5.5",
+	"gpt-5.3-codex":    "gpt-5.5",
+	"gpt-4-5":          "gpt-5.5",
+	"claude-5-sonnet":  "claude-sonnet-5-5",
+	"claude-sonnet-5":  "claude-sonnet-5-5",
+	"claude-fable-5":   "claude-fable-5.1",
+	"claude-opus-4-8":  "claude-opus-4-6",
+	"claude-opus-4-7":  "claude-opus-4-6",
+	"claude-opus-4-5":  "claude-opus-4-6",
+	"claude-4-sonnet":  "claude-sonnet-4-6",
+	"gemini-2.5-pro":   "gemini-3.1-pro-preview-thinking",
+	"gemini-3.1-pro":   "gemini-3.1-pro-preview-thinking",
+	"gemini-2.5-flash": "gemini-3-flash-preview",
+	"gemini-3.5-flash": "gemini-3.8-flash",
+}
+
+var modelRouteMap = func() map[string]modelRoute {
+	m := make(map[string]modelRoute, len(monicaModels)+len(modelAliases))
+	for _, mm := range monicaModels {
+		m[mm.ID] = modelRoute{ChatModel: mm.ChatModel, UseModel: mm.ID}
+	}
+	for alias, target := range modelAliases {
+		if r, ok := m[target]; ok {
+			m[alias] = r
+		}
+	}
+	return m
+}()
 
 func modelToRoute(model string) modelRoute {
 	if route, ok := modelRouteMap[model]; ok {
 		return route
 	}
-	logger.Warn("未找到模型映射，回退到 Monica 默认模型", zap.String("model", model))
-	return modelRoute{BotUID: "gpt_4_o_chat"}
+	logger.Warn("未找到模型映射，回退到 GPT-4o", zap.String("model", model))
+	return modelRouteMap["gpt-4o"]
 }
 
 // CustomBotRequest 定义custom bot的请求结构
@@ -382,34 +422,9 @@ const (
 
 // GetSupportedModels 获取支持的模型列表
 func GetSupportedModels() []string {
-	models := []string{
-		"gpt-4o",
-		"gpt-5",
-		"gpt-5.5",
-		"gpt-5.4",
-		"gpt-5.4-pro",
-		"gpt-5.4-nano",
-		"gpt-5.3-codex",
-		"gpt-4-5",
-
-		"claude-5-sonnet",
-		"claude-sonnet-5",
-		"claude-fable-5",
-		"claude-opus-4-8",
-		"claude-opus-4-7",
-		"claude-4-sonnet",
-		"claude-sonnet-4-6",
-		"claude-opus-4-6",
-		"claude-opus-4-5",
-		"claude-sonnet-4-5",
-
-		"gemini-2.5-pro",
-		"gemini-3.1-pro",
-		"gemini-3.1-pro-preview-thinking",
-		"gemini-2.5-flash",
-		"gemini-3.5-flash",
-		"gemini-3-flash-preview",
-		"gemini-3.1-flash-lite",
+	models := make([]string, 0, len(monicaModels))
+	for _, m := range monicaModels {
+		models = append(models, m.ID)
 	}
 	return models
 }
@@ -599,9 +614,14 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 
 	// 构建请求
 	route := modelToRoute(chatReq.Model)
+	for i := range items {
+		if items[i].ItemType == "question" {
+			items[i].Data.ChatModel = route.ChatModel
+		}
+	}
 	mReq := &MonicaRequest{
 		TaskUID: fmt.Sprintf("task:%s", uuid.New().String()),
-		BotUID:  route.BotUID,
+		BotUID:  MonicaBotUID,
 		Data: DataField{
 			ConversationID:  conversationID,
 			Items:           items,
@@ -612,7 +632,7 @@ func ChatGPTToMonica(cfg *config.Config, chatReq openai.ChatCompletionRequest) (
 			UseNewMemory:    false,
 		},
 		Language: "auto",
-		TaskType: "chat",
+		TaskType: "chat_with_custom_bot",
 	}
 
 	// indent, err := json.MarshalIndent(mReq, "", "  ")
