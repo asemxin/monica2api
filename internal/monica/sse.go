@@ -175,16 +175,12 @@ func (p *processMonicaSSE) processSSEStream(handler handleSSEData) error {
 			return fmt.Errorf("read error: %w", err)
 		}
 
-		// Monica SSE 的行前缀一般是 "data: "
-		if len(line) < dataPrefixLen || !bytes.HasPrefix(line, []byte(dataPrefix)) {
+		// Monica SSE 的行前缀一般是 "data: "，也兼容没有空格的 "data:"
+		trimmedLine := bytes.TrimRight(line, "\r\n")
+		if !bytes.HasPrefix(trimmedLine, []byte("data:")) {
 			continue
 		}
-
-		// 安全地提取JSON字符串，避免slice bounds越界
-		if len(line) <= dataPrefixLen+1 { // 需要至少 data: + 至少1个字符 + \n
-			continue
-		}
-		jsonStr := line[dataPrefixLen : len(line)-1] // 去掉\n
+		jsonStr := bytes.TrimSpace(trimmedLine[len("data:"):])
 		if len(jsonStr) == 0 {
 			continue
 		}
@@ -394,7 +390,8 @@ func StreamMonicaSSEToClientWithConfig(model string, w io.Writer, r io.Reader, c
 	}
 
 	var thinkFlag bool
-	return processor.processSSEStream(func(sseData *SSEData) error {
+	streamFinished := false
+	streamErr := processor.processSSEStream(func(sseData *SSEData) error {
 		atomic.AddInt64(&chunkCount, 1)
 
 		var sseMsg types.ChatCompletionStreamResponse
@@ -512,6 +509,7 @@ func StreamMonicaSSEToClientWithConfig(model string, w io.Writer, r io.Reader, c
 				)
 			}
 
+			streamFinished = true
 			writer.WriteString(dataPrefix)
 			writer.WriteString(sseFinish)
 			writer.WriteString(lineEnd)
@@ -538,4 +536,44 @@ func StreamMonicaSSEToClientWithConfig(model string, w io.Writer, r io.Reader, c
 		sseData.Finished = false
 		return nil
 	})
+
+	// Monica 有时以 [DONE] 或直接 EOF 结束而不带 finished=true。
+	// 这里补发标准的 finish_reason=stop 和 [DONE]，否则 OpenAI 兼容客户端
+	// （如 Cherry Studio / AI SDK）会报 finish reason "other"。
+	if !streamFinished {
+		if thinkFlag {
+			writeStreamChunk(writer, chatId, now, fingerprint, model, "</think>", openai.FinishReasonNull)
+		}
+		writeStreamChunk(writer, chatId, now, fingerprint, model, "", openai.FinishReasonStop)
+		writer.WriteString(dataPrefix)
+		writer.WriteString(sseFinish)
+		writer.WriteString(lineEnd)
+		writer.Flush()
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+	return streamErr
+}
+
+func writeStreamChunk(writer *bufio.Writer, chatId string, created int64, fingerprint, model, content string, finish openai.FinishReason) {
+	msg := types.ChatCompletionStreamResponse{
+		ID:                "chatcmpl-" + chatId,
+		Object:            sseObject,
+		SystemFingerprint: fingerprint,
+		Created:           created,
+		Model:             model,
+		Choices: []types.ChatCompletionStreamChoice{{
+			Index:        0,
+			Delta:        openai.ChatCompletionStreamChoiceDelta{Role: openai.ChatMessageRoleAssistant, Content: content},
+			FinishReason: finish,
+		}},
+	}
+	line, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	writer.WriteString(dataPrefix)
+	writer.Write(line)
+	writer.WriteString(lineEnd)
 }
