@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Monica Cookie Sync</title>
+  <style>
+    body { width: 320px; margin: 0; padding: 14px; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; }
+    h1 { font-size: 15px; margin: 0 0 10px; }
+    label { display: block; font-size: 12px; color: #657086; margin: 8px 0 4px; }
+    input[type=text], input[type=password] { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid #d9dee7; border-radius: 6px; font: inherit; }
+    .row { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: #657086; }
+    button { width: 100%; margin-top: 12px; padding: 8px; border: 0; border-radius: 6px; background: #1463ff; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: default; }
+    #status { margin-top: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+    .ok { color: #1a7f37; } .err { color: #b42318; } .muted { color: #657086; }
+  </style>
+</head>
+<body>
+  <h1>Monica2API · Cookie 同步</h1>
+  <label for="proxy">代理地址</label>
+  <input id="proxy" type="text" placeholder="https://monica2api.onrender.com">
+  <label for="password">管理员密码（ADMIN_PASSWORD）</label>
+  <input id="password" type="password" autocomplete="off">
+  <div class="row"><input id="remember" type="checkbox"><span>本次浏览器会话内记住密码</span></div>
+  <button id="sync">读取 monica.im Cookie 并更新</button>
+  <div id="status" class="muted">需要先在本浏览器登录 monica.im。</div>
+  <script src="popup.js"></script>
+</body>
+</html>
