@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"monica-proxy/internal/cookiestate"
 	"monica-proxy/internal/errors"
+	"os"
 	"strings"
 
 	"github.com/go-resty/resty/v2"
@@ -31,8 +33,8 @@ func validateUpstreamSSE(resp *resty.Response) error {
 	if resp.StatusCode() >= 400 {
 		data, _ := io.ReadAll(io.LimitReader(body, 4096))
 		body.Close()
-		msg := upstreamErrorMessage(data)
-		return errors.NewRequestFailedError(fmt.Sprintf("Monica HTTP %d: %s", resp.StatusCode(), msg), nil)
+		msg := withCookieHint(fmt.Sprintf("Monica HTTP %d: %s", resp.StatusCode(), upstreamErrorMessage(data)))
+		return errors.NewRequestFailedError(msg, nil)
 	}
 
 	br := bufio.NewReaderSize(body, bufferSize)
@@ -48,14 +50,14 @@ func validateUpstreamSSE(resp *resty.Response) error {
 			if trimmed[0] == '{' || trimmed[0] == '[' {
 				rest, _ := io.ReadAll(io.LimitReader(br, 4096))
 				body.Close()
-				return errors.NewRequestFailedError("Monica 错误: "+upstreamErrorMessage(append(consumed.Bytes(), rest...)), nil)
+				return errors.NewRequestFailedError(withCookieHint("Monica 错误: "+upstreamErrorMessage(append(consumed.Bytes(), rest...))), nil)
 			}
 			break
 		}
 		if err != nil {
 			if consumed.Len() == 0 {
 				body.Close()
-				return errors.NewRequestFailedError("Monica 返回了空响应（请检查 MONICA_COOKIE 是否过期）", nil)
+				return errors.NewRequestFailedError(forceCookieHint("Monica 返回了空响应"), nil)
 			}
 			break
 		}
@@ -98,4 +100,18 @@ func upstreamErrorMessage(data []byte) string {
 		s = "empty body"
 	}
 	return s
+}
+
+// withCookieHint 如果错误看起来是 Cookie 失效，记录状态并附上更新提示
+func withCookieHint(msg string) string {
+	if !cookiestate.LooksLikeAuthError(msg) {
+		return msg
+	}
+	cookiestate.Set("invalid", msg)
+	return msg + "。" + cookiestate.UpdateHint(os.Getenv("RENDER_EXTERNAL_URL"))
+}
+
+func forceCookieHint(msg string) string {
+	cookiestate.Set("invalid", msg)
+	return msg + "。" + cookiestate.UpdateHint(os.Getenv("RENDER_EXTERNAL_URL"))
 }
