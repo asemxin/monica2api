@@ -53,7 +53,7 @@ func GenerateImage(ctx context.Context, cfg *config.Config, req *types.ImageGene
 	resp, err := utils.RestyDefaultClient.R().
 		SetContext(ctx).
 		SetBody(monicaReq).
-		SetHeader("cookie", cfg.Monica.Cookie).
+		SetHeader("cookie", cfg.MonicaCookie()).
 		Post(types.ImageGenerateURL)
 
 	if err != nil {
@@ -114,7 +114,7 @@ func GenerateImage(ctx context.Context, cfg *config.Config, req *types.ImageGene
 				SetBody(map[string]any{
 					"image_tools_id": imageToolsID,
 				}).
-				SetHeader("cookie", cfg.Monica.Cookie).
+				SetHeader("cookie", cfg.MonicaCookie()).
 				SetResult(&resultData).
 				Post(types.ImageResultURL)
 
