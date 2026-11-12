@@ -29,12 +29,46 @@ async function init() {
   } catch (e) { /* 代理可能在休眠，忽略 */ }
 }
 
+// 找到当前标签页所在的 Cookie 存储（Ego / Chrome 多个空间或配置文件时各自独立）
+async function currentStoreIds() {
+  const ids = [];
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const stores = await chrome.cookies.getAllCookieStores();
+    if (tab) {
+      const own = stores.find(s => (s.tabIds || []).includes(tab.id));
+      if (own) ids.push(own.id);
+    }
+    for (const s of stores) if (!ids.includes(s.id)) ids.push(s.id);
+  } catch (e) { /* 忽略，使用默认存储 */ }
+  if (ids.length === 0) ids.push(undefined);
+  return ids;
+}
+
+async function collect(query) {
+  try { return await chrome.cookies.getAll(query); } catch (e) { return []; }
+}
+
+// 返回 { cookie, names }：cookie 为拼好的 Cookie 串（找不到 session_id 时为 null），names 仅用于诊断
 async function readMonicaCookie() {
-  const cookies = await chrome.cookies.getAll({ domain: 'monica.im' });
-  const byName = new Map();
-  for (const c of cookies) byName.set(c.name, c.value);
-  if (!byName.has('session_id')) return null;
-  return Array.from(byName, ([k, v]) => k + '=' + v).join('; ');
+  const seenNames = new Set();
+  for (const storeId of await currentStoreIds()) {
+    const base = storeId === undefined ? {} : { storeId };
+    const found = [
+      ...(await collect({ ...base, domain: 'monica.im' })),
+      ...(await collect({ ...base, url: 'https://monica.im/' })),
+      ...(await collect({ ...base, url: 'https://api.monica.im/' })),
+      // 分区 Cookie（CHIPS）
+      ...(await collect({ ...base, domain: 'monica.im', partitionKey: {} })),
+      ...(await collect({ ...base, url: 'https://api.monica.im/', partitionKey: { topLevelSite: 'https://monica.im' } })),
+    ];
+    const byName = new Map();
+    for (const c of found) { byName.set(c.name, c.value); seenNames.add(c.name); }
+    if (byName.has('session_id')) {
+      return { cookie: Array.from(byName, ([k, v]) => k + '=' + v).join('; '), names: [] };
+    }
+  }
+  return { cookie: null, names: Array.from(seenNames) };
 }
 
 async function ensureHostPermission(origin) {
@@ -54,8 +88,13 @@ async function sync() {
   syncEl.disabled = true;
   try {
     if (!(await ensureHostPermission(origin))) { show('没有访问该代理地址的权限。', 'err'); return; }
-    const cookie = await readMonicaCookie();
-    if (!cookie) { show('没有找到 monica.im 的 session_id，请先在本浏览器登录 monica.im。', 'err'); return; }
+    const { cookie, names } = await readMonicaCookie();
+    if (!cookie) {
+      show('没有找到 monica.im 的 session_id。\n' +
+        (names.length ? '找到的 Cookie 名称：' + names.join(', ') : '扩展读不到任何 monica.im 的 Cookie（可能被浏览器限制）。') +
+        '\n可以改用代理网页手动粘贴 Cookie。', 'err');
+      return;
+    }
 
     await chrome.storage.local.set({ proxy });
     if (rememberEl.checked) await chrome.storage.session.set({ password });
