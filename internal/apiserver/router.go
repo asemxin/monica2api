@@ -26,6 +26,12 @@ func RegisterRoutes(e *echo.Echo, cfg *config.Config) {
 	// 设置自定义错误处理器
 	e.HTTPErrorHandler = middleware.ErrorHandler()
 
+	// Cookie 管理接口：不走 Bearer 认证，使用 ADMIN_PASSWORD 单独保护
+	e.GET("/admin/cookie/status", createCookieStatusHandler())
+	e.POST("/admin/cookie/check", createCookieCheckHandler(cfg))
+	e.POST("/admin/cookie", createCookieUpdateHandler(cfg))
+	StartCookieMonitor(cfg)
+
 	api := e.Group("")
 	api.Use(middleware.BearerAuth(cfg))
 	api.Use(middleware.RequestLogger(cfg))
