@@ -43,7 +43,7 @@ func SendMonicaRequest(ctx context.Context, cfg *config.Config, mReq *types.Moni
 	// 发起请求
 	resp, err := utils.RestySSEClient.R().
 		SetContext(ctx).
-		SetHeader("cookie", cfg.Monica.Cookie).
+		SetHeader("cookie", cfg.MonicaCookie()).
 		SetBody(mReq).
 		Post(types.BotChatURL)
 
@@ -127,7 +127,7 @@ func SendCustomBotRequest(ctx context.Context, cfg *config.Config, customBotReq 
 	// 发起请求
 	resp, err := utils.RestySSEClient.R().
 		SetContext(ctx).
-		SetHeader("cookie", cfg.Monica.Cookie).
+		SetHeader("cookie", cfg.MonicaCookie()).
 		SetBody(customBotReq).
 		Post(types.CustomBotChatURL)
 
