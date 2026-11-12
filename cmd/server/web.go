@@ -270,6 +270,24 @@ const webGUIHTML = `<!doctype html>
       .message { max-width: 94%; }
       form, .row { grid-template-columns: 1fr; }
     }
+    .cookie-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      background: var(--panel);
+    }
+    .cookie-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; }
+    .badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #eef1f6; color: var(--muted); }
+    .badge.valid { background: #e7f6ec; color: #1a7f37; }
+    .badge.invalid { background: #fdecea; color: var(--danger); }
+    .cookie-card textarea { min-height: 64px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .cookie-msg { font-size: 12px; color: var(--muted); word-break: break-word; }
+    .cookie-msg.err { color: var(--danger); }
+    .cookie-msg.ok { color: #1a7f37; }
+    .cookie-actions { display: flex; gap: 8px; }
+    .cookie-actions button { flex: 1; }
   </style>
 </head>
 <body>
@@ -298,6 +316,22 @@ const webGUIHTML = `<!doctype html>
           <div class="usage-line"><span>Advanced credits</span><span class="usage-value" id="creditsValue">Loading...</span></div>
         </div>
         <div class="model-note" id="modelNote">Load models to see usage type.</div>
+        <div class="cookie-card" id="cookieCard">
+          <div class="cookie-head"><span>Monica Cookie</span><span class="badge" id="cookieBadge">Checking…</span></div>
+          <div class="cookie-msg" id="cookieInfo"></div>
+          <details id="cookieUpdate">
+            <summary class="cookie-msg">Update cookie</summary>
+            <div style="display:grid;gap:8px;margin-top:8px">
+              <textarea id="cookieInput" placeholder="Paste the full Cookie header from monica.im (or just the session_id value)"></textarea>
+              <input id="adminPassword" type="password" autocomplete="off" placeholder="Admin password (ADMIN_PASSWORD)">
+              <div class="cookie-actions">
+                <button class="ghost" id="cookieCheck" type="button">Check</button>
+                <button id="cookieSave" type="button">Update</button>
+              </div>
+              <div class="cookie-msg" id="cookieResult"></div>
+            </div>
+          </details>
+        </div>
         <div>
           <label for="systemPrompt">System Prompt</label>
           <textarea id="systemPrompt" placeholder="Optional"></textarea>
@@ -553,6 +587,92 @@ const webGUIHTML = `<!doctype html>
     promptEl.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) chatForm.requestSubmit();
     });
+    const cookieBadgeEl = document.getElementById('cookieBadge');
+    const cookieInfoEl = document.getElementById('cookieInfo');
+    const cookieInputEl = document.getElementById('cookieInput');
+    const adminPasswordEl = document.getElementById('adminPassword');
+    const cookieResultEl = document.getElementById('cookieResult');
+    const cookieUpdateEl = document.getElementById('cookieUpdate');
+    function timeAgo(iso) {
+      if (!iso || iso.startsWith('0001')) return '';
+      const sec = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+      if (sec < 60) return 'just now';
+      if (sec < 3600) return Math.round(sec / 60) + ' min ago';
+      return Math.round(sec / 3600) + ' h ago';
+    }
+    function renderCookieStatus(data) {
+      const st = (data && data.status) || { state: 'unknown' };
+      const labels = { valid: 'Valid', invalid: 'Expired', unknown: 'Unknown' };
+      cookieBadgeEl.textContent = labels[st.state] || st.state;
+      cookieBadgeEl.className = 'badge ' + (st.state || '');
+      const parts = [];
+      if (st.checkedAt && timeAgo(st.checkedAt)) parts.push('Checked ' + timeAgo(st.checkedAt));
+      if (st.updatedAt && timeAgo(st.updatedAt)) parts.push('updated ' + timeAgo(st.updatedAt));
+      if (st.state === 'invalid' && st.message) parts.push(st.message);
+      if (data && data.adminEnabled === false) parts.push('Set ADMIN_PASSWORD on Render to enable updates here.');
+      cookieInfoEl.textContent = parts.join(' · ');
+      cookieInfoEl.className = 'cookie-msg' + (st.state === 'invalid' ? ' err' : '');
+      if (st.state === 'invalid') cookieUpdateEl.open = true;
+    }
+    async function loadCookieStatus() {
+      try {
+        const res = await fetch('/admin/cookie/status');
+        renderCookieStatus(await res.json());
+      } catch (error) {
+        cookieBadgeEl.textContent = 'Unknown';
+      }
+    }
+    async function checkCookieNow() {
+      cookieResultEl.className = 'cookie-msg';
+      cookieResultEl.textContent = 'Checking…';
+      try {
+        const res = await fetch('/admin/cookie/check', { method: 'POST' });
+        const data = await res.json();
+        await loadCookieStatus();
+        cookieResultEl.textContent = data.status && data.status.state === 'valid' ? 'Current cookie works.' : 'Current cookie does not work.';
+        cookieResultEl.className = 'cookie-msg ' + (data.status && data.status.state === 'valid' ? 'ok' : 'err');
+      } catch (error) {
+        cookieResultEl.textContent = error.message || String(error);
+        cookieResultEl.className = 'cookie-msg err';
+      }
+    }
+    async function saveCookie() {
+      const cookie = cookieInputEl.value.trim();
+      const password = adminPasswordEl.value;
+      if (!cookie || !password) {
+        cookieResultEl.textContent = 'Enter both the cookie and the admin password.';
+        cookieResultEl.className = 'cookie-msg err';
+        return;
+      }
+      cookieResultEl.className = 'cookie-msg';
+      cookieResultEl.textContent = 'Validating with Monica…';
+      try {
+        const res = await fetch('/admin/cookie', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookie: cookie, password: password })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          cookieInputEl.value = '';
+          adminPasswordEl.value = '';
+          cookieResultEl.textContent = data.message + '. ' + (data.note || '');
+          cookieResultEl.className = 'cookie-msg ok';
+          loadUsage();
+        } else {
+          cookieResultEl.textContent = data.error || ('HTTP ' + res.status);
+          cookieResultEl.className = 'cookie-msg err';
+        }
+        loadCookieStatus();
+      } catch (error) {
+        cookieResultEl.textContent = error.message || String(error);
+        cookieResultEl.className = 'cookie-msg err';
+      }
+    }
+    document.getElementById('cookieCheck').addEventListener('click', checkCookieNow);
+    document.getElementById('cookieSave').addEventListener('click', saveCookie);
+    loadCookieStatus();
+    setInterval(loadCookieStatus, 60000);
     if (apiKeyEl.value) loadModels();
   </script>
 </body>
