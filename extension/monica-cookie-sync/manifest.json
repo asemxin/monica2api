@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Monica2API Cookie Sync",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Send your logged-in monica.im cookie to your own Monica2API proxy with one click.",
   "permissions": ["cookies", "storage"],
   "host_permissions": [
