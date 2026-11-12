@@ -1,15 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Monica2API Cookie Sync",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Send your logged-in monica.im cookie to your own Monica2API proxy with one click.",
-  "permissions": ["cookies", "storage"],
+  "permissions": [
+    "cookies",
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
   "host_permissions": [
     "https://monica.im/*",
     "https://*.monica.im/*",
     "https://*.onrender.com/*"
   ],
-  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
   "action": {
     "default_title": "Sync Monica cookie",
     "default_popup": "popup.html"
