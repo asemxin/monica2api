@@ -86,7 +86,7 @@ func UploadBase64Image(ctx context.Context, cfg *config.Config, base64Data strin
 	var preSignResp PreSignResponse
 	_, err = utils.RestyDefaultClient.R().
 		SetContext(ctx).
-		SetHeader("cookie", cfg.Monica.Cookie).
+		SetHeader("cookie", cfg.MonicaCookie()).
 		SetBody(preSignReq).
 		SetResult(&preSignResp).
 		Post(PreSignURL)
@@ -120,7 +120,7 @@ func UploadBase64Image(ctx context.Context, cfg *config.Config, base64Data strin
 	var uploadResp FileUploadResponse
 	_, err = utils.RestyDefaultClient.R().
 		SetContext(ctx).
-		SetHeader("cookie", cfg.Monica.Cookie).
+		SetHeader("cookie", cfg.MonicaCookie()).
 		SetBody(uploadReq).
 		SetResult(&uploadResp).
 		Post(FileUploadURL)
@@ -153,7 +153,7 @@ func UploadBase64Image(ctx context.Context, cfg *config.Config, base64Data strin
 		}
 		_, err = utils.RestyDefaultClient.R().
 			SetContext(ctx).
-			SetHeader("cookie", cfg.Monica.Cookie).
+			SetHeader("cookie", cfg.MonicaCookie()).
 			SetBody(reqMap).
 			SetResult(&batchResp).
 			Post(FileGetURL)
