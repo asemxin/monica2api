@@ -166,6 +166,11 @@ type MonicaQuotaResponse struct {
 
 // GetMonicaQuota 获取Monica额度信息
 func GetMonicaQuota(cfg *config.Config) (*MonicaQuotaResponse, error) {
+	return GetMonicaQuotaWithCookie(cfg, cfg.MonicaCookie())
+}
+
+// GetMonicaQuotaWithCookie 用指定的 Cookie 查询额度（也用于验证 Cookie 是否有效）
+func GetMonicaQuotaWithCookie(cfg *config.Config, cookie string) (*MonicaQuotaResponse, error) {
 	// 创建专用的HTTP客户端
 	client := resty.New().
 		SetTimeout(30 * time.Second).
@@ -202,8 +207,8 @@ func GetMonicaQuota(cfg *config.Config) (*MonicaQuotaResponse, error) {
 	}
 
 	// 设置Cookie
-	if cfg.Monica.Cookie != "" {
-		client.SetHeader("Cookie", cfg.Monica.Cookie)
+	if cookie != "" {
+		client.SetHeader("Cookie", cookie)
 	}
 
 	// 准备请求数据
