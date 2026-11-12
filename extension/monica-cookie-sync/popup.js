@@ -68,7 +68,26 @@ async function readMonicaCookie() {
       return { cookie: Array.from(byName, ([k, v]) => k + '=' + v).join('; '), names: [] };
     }
   }
-  return { cookie: null, names: Array.from(seenNames) };
+  // 兜底：部分浏览器（如 Ego）的 cookies API 只返回部分 Cookie。
+  // Monica 的 session_id 不是 HttpOnly，可以直接在 monica.im 标签页里读取 document.cookie。
+  const fromPage = await readFromActiveTab();
+  if (fromPage.cookie) return fromPage;
+  return { cookie: null, names: Array.from(new Set([...seenNames, ...fromPage.names])), pageError: fromPage.error };
+}
+
+async function readFromActiveTab() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !/^https:\/\/([a-z0-9-]+\.)*monica\.im\//i.test(tab.url || '')) {
+      return { cookie: null, names: [], error: '请在 monica.im 的标签页上点击扩展图标' };
+    }
+    const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => document.cookie });
+    const raw = (res && res.result) || '';
+    const names = raw.split(';').map(x => x.split('=')[0].trim()).filter(Boolean);
+    return { cookie: /(^|;\s*)session_id=/.test(raw) ? raw : null, names };
+  } catch (e) {
+    return { cookie: null, names: [], error: e.message || String(e) };
+  }
 }
 
 async function ensureHostPermission(origin) {
@@ -88,11 +107,12 @@ async function sync() {
   syncEl.disabled = true;
   try {
     if (!(await ensureHostPermission(origin))) { show('没有访问该代理地址的权限。', 'err'); return; }
-    const { cookie, names } = await readMonicaCookie();
+    const { cookie, names, pageError } = await readMonicaCookie();
     if (!cookie) {
       show('没有找到 monica.im 的 session_id。\n' +
-        (names.length ? '找到的 Cookie 名称：' + names.join(', ') : '扩展读不到任何 monica.im 的 Cookie（可能被浏览器限制）。') +
-        '\n可以改用代理网页手动粘贴 Cookie。', 'err');
+        (pageError ? pageError + '\n' : '') +
+        (names.length ? '找到的 Cookie 名称：' + names.join(', ') : '扩展读不到任何 monica.im 的 Cookie。') +
+        '\n也可以改用代理网页手动粘贴 Cookie。', 'err');
       return;
     }
 
