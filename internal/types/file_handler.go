@@ -81,7 +81,7 @@ func UploadUniversalFile(ctx context.Context, cfg *config.Config, req *Universal
 	var preSignResp PreSignResponse
 	_, err = utils.RestyDefaultClient.R().
 		SetContext(ctx).
-		SetHeader("cookie", cfg.Monica.Cookie).
+		SetHeader("cookie", cfg.MonicaCookie()).
 		SetBody(preSignReq).
 		SetResult(&preSignResp).
 		Post(PreSignURL)
@@ -116,7 +116,7 @@ func UploadUniversalFile(ctx context.Context, cfg *config.Config, req *Universal
 	var uploadResp FileUploadResponse
 	_, err = utils.RestyDefaultClient.R().
 		SetContext(ctx).
-		SetHeader("cookie", cfg.Monica.Cookie).
+		SetHeader("cookie", cfg.MonicaCookie()).
 		SetBody(uploadReq).
 		SetResult(&uploadResp).
 		Post(FileUploadURL)
@@ -376,7 +376,7 @@ func waitForFileProcessing(ctx context.Context, cfg *config.Config, fileUID stri
 		var batchResp FileBatchGetResponse
 		_, err := utils.RestyDefaultClient.R().
 			SetContext(ctx).
-			SetHeader("cookie", cfg.Monica.Cookie).
+			SetHeader("cookie", cfg.MonicaCookie()).
 			SetBody(reqMap).
 			SetResult(&batchResp).
 			Post(FileGetURL)
@@ -432,7 +432,7 @@ func getProcessedFileInfo(ctx context.Context, cfg *config.Config, fileUID strin
 	var batchResp FileBatchGetResponse
 	_, err := utils.RestyDefaultClient.R().
 		SetContext(ctx).
-		SetHeader("cookie", cfg.Monica.Cookie).
+		SetHeader("cookie", cfg.MonicaCookie()).
 		SetBody(reqMap).
 		SetResult(&batchResp).
 		Post(FileGetURL)
